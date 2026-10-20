@@ -17,6 +17,8 @@ import (
 	guestv1 "github.com/karthikponna/tryboxi/gen/guest/v1"
 	"github.com/karthikponna/tryboxi/internal/guestclient"
 	"github.com/karthikponna/tryboxi/internal/image"
+	"github.com/karthikponna/tryboxi/internal/network/policy"
+	"github.com/karthikponna/tryboxi/internal/network/usernet"
 	"github.com/karthikponna/tryboxi/internal/vmm"
 	"github.com/karthikponna/tryboxi/internal/vmm/vz"
 )
@@ -50,6 +52,7 @@ func run(ctx context.Context, c *guestclient.Client, id, cmd string) {
 func main() {
 	root := flag.String("root", "_out", "artifact root")
 	work := flag.String("work", "", "work dir (default: temp)")
+	withNet := flag.Bool("net", true, "attach userspace network")
 	flag.Parse()
 	ctx := context.Background()
 
@@ -73,6 +76,17 @@ func main() {
 		Cmdline:  "console=hvc0 rdinit=/init sbx.root=/dev/vda quiet",
 		RootDisk: disk, VCPU: 2, MemMB: 1024, ConsoleLog: filepath.Join(w, "console.log"),
 	}
+	newNet := func() *usernet.Network {
+		pol := policy.MustCompile(policy.Spec{Mode: policy.ModeAllowlist, Allow: policy.DefaultAllow})
+		n, err := usernet.New(pol, func(e usernet.Event) { log.Printf("net event: %+v", e) }, nil)
+		must(err)
+		return n
+	}
+	var nw *usernet.Network
+	if *withNet {
+		nw = newNet()
+		spec.Net = vmm.Network{Enabled: true, MAC: usernet.GuestMAC, File: nw.GuestFile()}
+	}
 	t0 := time.Now()
 	m, err := d.Boot(ctx, spec)
 	must(err)
@@ -90,6 +104,11 @@ func main() {
 	must(err)
 	log.Printf("guest: agent=%s kernel=%s arch=%s", v.AgentVersion, v.KernelRelease, v.Arch)
 	run(ctx, c, "e1", "id; uname -a; node --version; python3 --version; df -h / | tail -1; nproc; free -m | head -2")
+	if *withNet {
+		_, err := c.Configure(ctx, &guestv1.ConfigureRequest{Hostname: "spike", IpCidr: usernet.GuestCIDR, Gateway: usernet.GatewayIP, Dns: []string{usernet.GatewayIP}, Mtu: usernet.MTU})
+		must(err)
+		run(ctx, c, "n1", "ip -4 addr show | grep inet; getent hosts registry.npmjs.org; curl -sS -o /dev/null -w 'npm %{http_code}\\n' https://registry.npmjs.org/; curl -sS -m 5 -o /dev/null -w 'example %{http_code}\\n' https://example.com/ || echo 'example.com blocked'; curl -sS -m 5 http://1.1.1.1/ -o /dev/null -w '%{http_code}\\n' || echo 'raw IP blocked'")
+	}
 
 	must(c.Refresh(ctx))
 	run(ctx, c, "e2", "sync; echo before-snapshot > /tmp/marker")
@@ -113,6 +132,11 @@ func main() {
 		cs.RootDisk = filepath.Join(w, fmt.Sprintf("clone%d.img", i))
 		cs.ConsoleLog = filepath.Join(w, fmt.Sprintf("clone%d.log", i))
 		must(d.CloneFile(sf.Disk, cs.RootDisk))
+		if *withNet {
+			cn := newNet()
+			defer cn.Close()
+			cs.Net = vmm.Network{Enabled: true, MAC: usernet.GuestMAC, File: cn.GuestFile()}
+		}
 		t2 := time.Now()
 		cm, err := d.Restore(ctx, sf, cs)
 		must(err)
@@ -126,6 +150,9 @@ func main() {
 		must(cc.Refresh(ctx))
 		log.Printf("clone%d restore to ready: %s", i, time.Since(t2))
 		run(ctx, cc, fmt.Sprintf("c%d", i), fmt.Sprintf("cat /tmp/marker; head -c 8 /dev/urandom | od -An -tx1; echo clone%d > /tmp/who; cat /tmp/who", i))
+		if *withNet {
+			run(ctx, cc, fmt.Sprintf("cn%d", i), "curl -sS -m 10 -o /dev/null -w 'npm after restore %{http_code}\\n' https://registry.npmjs.org/")
+		}
 		defer cm.Kill()
 		defer cc.Close()
 	}
