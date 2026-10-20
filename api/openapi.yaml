@@ -1,0 +1,279 @@
+openapi: 3.1.0
+info:
+  title: sandboxd API
+  version: "1.0.0"
+  description: |
+    Local microVM sandboxes for AI agents. Served on a unix socket
+    (macOS: ~/Library/Application Support/sandboxd/sandboxd.sock,
+    Linux: /run/sandboxd/sandboxd.sock) and optionally on 127.0.0.1 with a
+    bearer token. Requests carrying an Origin header are rejected.
+
+    Errors use `{"error": {"code", "message", "retryable", "retry_after_s"}}`
+    with codes: capacity_exhausted (503 + Retry-After), invalid_state (409),
+    not_found (404), sandbox_lost (410), unauthorized (401), timeout (504),
+    invalid_request (400), internal (500).
+servers:
+  - url: http://sandboxd
+security:
+  - peercred: []
+  - bearer: []
+components:
+  securitySchemes:
+    bearer: {type: http, scheme: bearer}
+    peercred: {type: apiKey, in: header, name: X-Unix-Peer, description: "Unix socket peer uid (implicit)"}
+  parameters:
+    id: {name: id, in: path, required: true, schema: {type: string}}
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: {type: string}
+            message: {type: string}
+            retryable: {type: boolean}
+            retry_after_s: {type: integer}
+    CreateSandboxRequest:
+      type: object
+      properties:
+        template: {type: string, description: '"base" (default), "auto" (detect repo stack), or a template name/id'}
+        vcpu: {type: integer, default: 2}
+        mem_mb: {type: integer, default: 2048}
+        disk_mb: {type: integer, default: 8192}
+        workspace:
+          type: object
+          properties:
+            host_path: {type: string}
+            mode: {type: string, enum: [host, sandbox, none]}
+        network:
+          type: object
+          properties:
+            mode: {type: string, enum: [none, allowlist, full]}
+            allow: {type: array, items: {type: string}}
+            deny: {type: array, items: {type: string}}
+            ports: {type: array, items: {type: integer}}
+        idle_timeout_s: {type: integer}
+        max_lifetime_s: {type: integer}
+        session_key: {type: string}
+        wait_for_capacity_s: {type: integer}
+        metadata: {type: object, additionalProperties: {type: string}}
+    Sandbox:
+      type: object
+      properties:
+        id: {type: string}
+        state: {type: string, enum: [pending, booting, ready, busy, pausing, paused, lost, failed, destroyed]}
+        health: {type: string}
+        state_reason: {type: string}
+        template_id: {type: string}
+        session_key: {type: string}
+        vcpu: {type: integer}
+        mem_mb: {type: integer}
+        disk_mb: {type: integer}
+        network_mode: {type: string}
+        workspace_mode: {type: string}
+        host_path: {type: string}
+        booted_from: {type: string, enum: [pool, snapshot, cold, resume]}
+        boot_ms: {type: integer}
+        exec_count: {type: integer}
+        ports: {type: object, additionalProperties: {type: integer}}
+        created_at: {type: integer}
+        ready_at: {type: integer}
+        last_active_at: {type: integer}
+        expires_at: {type: integer}
+        reused: {type: boolean}
+        notice: {type: string}
+    ExecRequest:
+      type: object
+      properties:
+        cmd: {type: string, description: "Run with bash -lc in /workspace as user agent"}
+        argv: {type: array, items: {type: string}}
+        cwd: {type: string}
+        env: {type: object, additionalProperties: {type: string}}
+        user: {type: string, default: agent}
+        timeout_s: {type: integer, default: 600}
+        wait: {type: boolean, default: true}
+        background: {type: boolean}
+        tty: {type: boolean}
+        stdin: {type: string}
+        keep_stdin_open: {type: boolean}
+        strip_ansi: {type: boolean, default: true}
+        max_output_bytes: {type: integer}
+        sync: {type: boolean, description: "Sync host workspace first (default true in host mode)"}
+    Execution:
+      type: object
+      properties:
+        exec_id: {type: string}
+        sandbox_id: {type: string}
+        status: {type: string, enum: [running, succeeded, failed, timed_out, killed, lost]}
+        command: {type: string}
+        exit_code: {type: [integer, "null"]}
+        signal: {type: integer}
+        timed_out: {type: boolean}
+        oom_killed: {type: boolean}
+        duration_ms: {type: integer}
+        stdout: {type: string}
+        stderr: {type: string}
+        stdout_truncated: {type: boolean}
+        stderr_truncated: {type: boolean}
+        stdout_bytes: {type: integer}
+        stderr_bytes: {type: integer}
+        changed_files: {type: array, items: {type: string}}
+        reason: {type: string}
+        log_urls: {type: object, additionalProperties: {type: string}}
+        sync: {$ref: "#/components/schemas/SyncResult"}
+    SyncResult:
+      type: object
+      properties:
+        sent: {type: integer}
+        deleted: {type: integer}
+        bytes: {type: integer}
+        skipped: {type: array, items: {type: string}}
+        duration_ms: {type: integer}
+    ApplyResult:
+      type: object
+      properties:
+        backup_artifact_id: {type: string}
+        applied: {type: integer}
+        conflicts: {type: integer}
+        skipped: {type: integer}
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              path: {type: string}
+              action: {type: string, enum: [written, deleted, merged, conflict, skipped, unchanged]}
+              reason: {type: string}
+    Snapshot:
+      type: object
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [golden, checkpoint, pause, fork_base]}
+        sandbox_id: {type: string}
+        label: {type: string}
+        created_at: {type: integer}
+        size_bytes: {type: integer}
+paths:
+  /v1/health:
+    get: {summary: Daemon status and versions, responses: {"200": {description: OK}}}
+  /v1/capacity:
+    get: {summary: Free vCPU/memory budget, warm pool, queue length, responses: {"200": {description: OK}}}
+  /v1/templates:
+    get: {summary: List templates, responses: {"200": {description: OK}}}
+    post:
+      summary: Build a template (auto-detect from repo_path, or explicit install steps)
+      requestBody: {content: {application/json: {schema: {type: object, properties: {name: {type: string}, repo_path: {type: string}, install: {type: array, items: {type: string}}, ready_check: {type: string}, wait: {type: boolean}}}}}}
+      responses: {"202": {description: Building or ready}}
+  /v1/templates/{id}:
+    get: {summary: Template status, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/templates/{id}/logs:
+    get: {summary: Build log (text; ?follow=1 for SSE), parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/sandboxes:
+    get:
+      summary: List sandboxes
+      parameters:
+        - {name: state, in: query, schema: {type: string}}
+        - {name: session_key, in: query, schema: {type: string}}
+        - {name: all, in: query, schema: {type: boolean}}
+      responses: {"200": {description: OK}}
+    post:
+      summary: Create a sandbox (or return the live one for session_key)
+      requestBody: {content: {application/json: {schema: {$ref: "#/components/schemas/CreateSandboxRequest"}}}}
+      responses:
+        "201": {description: Created, content: {application/json: {schema: {$ref: "#/components/schemas/Sandbox"}}}}
+        "200": {description: Reused session sandbox}
+        "503": {description: Capacity exhausted, content: {application/json: {schema: {$ref: "#/components/schemas/Error"}}}}
+  /v1/sandboxes/{id}:
+    parameters: [{$ref: "#/components/parameters/id"}]
+    get: {summary: Get sandbox, responses: {"200": {description: OK}}}
+    delete: {summary: Destroy sandbox, responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/pause:
+    post: {summary: Snapshot to disk and stop the VM (resumes on next call), parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/resume:
+    post: {summary: Resume a paused sandbox, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/keepalive:
+    post: {summary: Reset the idle timer, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/exec:
+    post:
+      summary: Run a command
+      parameters:
+        - {$ref: "#/components/parameters/id"}
+        - {name: Idempotency-Key, in: header, schema: {type: string}}
+      requestBody: {content: {application/json: {schema: {$ref: "#/components/schemas/ExecRequest"}}}}
+      responses:
+        "200": {description: Finished, content: {application/json: {schema: {$ref: "#/components/schemas/Execution"}}}}
+        "202": {description: Running (wait=false or background)}
+  /v1/sandboxes/{id}/executions:
+    get: {summary: Recent executions, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/files:
+    parameters:
+      - {$ref: "#/components/parameters/id"}
+      - {name: path, in: query, required: true, schema: {type: string}, description: "Absolute, or relative to /workspace"}
+    put: {summary: "Write a file (raw body) or extract a tar (Content-Type: application/x-tar)", responses: {"200": {description: OK}}}
+    get: {summary: Read a file (raw) or directory (tar; ?tar=1 forces tar), responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/sync:
+    post: {summary: Delta-sync host workspace into the VM (one-way), parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/diff:
+    get: {summary: Diff of /workspace vs its git HEAD (stored as an artifact), parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/apply:
+    post:
+      summary: 3-way merge sandbox changes into the host repo (backup first)
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {artifact_id: {type: string}, paths: {type: array, items: {type: string}}}}}}}
+      responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/ApplyResult"}}}}}
+  /v1/sandboxes/{id}/pull:
+    post:
+      summary: Copy files changed in the VM to the host (backup first; refuses host files changed since sync unless force)
+      parameters: [{$ref: "#/components/parameters/id"}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {paths: {type: array, items: {type: string}}, force: {type: boolean}}}}}}
+      responses: {"200": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/ApplyResult"}}}}}
+  /v1/sandboxes/{id}/snapshots:
+    post: {summary: Checkpoint a running sandbox, parameters: [{$ref: "#/components/parameters/id"}], responses: {"201": {description: OK, content: {application/json: {schema: {$ref: "#/components/schemas/Snapshot"}}}}}}
+  /v1/sandboxes/{id}/fork:
+    post: {summary: Clone a running sandbox N times, parameters: [{$ref: "#/components/parameters/id"}], requestBody: {content: {application/json: {schema: {type: object, properties: {count: {type: integer}}}}}}, responses: {"201": {description: OK}}}
+  /v1/sandboxes/{id}/restore:
+    post: {summary: New sandbox from a snapshot of this one (default latest checkpoint), parameters: [{$ref: "#/components/parameters/id"}], responses: {"201": {description: OK}}}
+  /v1/sandboxes/{id}/ports:
+    post: {summary: Expose a guest TCP port on 127.0.0.1, parameters: [{$ref: "#/components/parameters/id"}], requestBody: {content: {application/json: {schema: {type: object, properties: {guest_port: {type: integer}, host_port: {type: integer}}}}}}, responses: {"200": {description: OK}}}
+  /v1/sandboxes/{id}/recover:
+    post: {summary: Extract a lost sandbox's workspace via a rescue VM, parameters: [{$ref: "#/components/parameters/id"}], responses: {"201": {description: Recovery artifact}}}
+  /v1/executions/{id}:
+    get: {summary: Execution status and truncated output, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/executions/{id}/stream:
+    get: {summary: "SSE stream of output frames (events stdout/stderr/exit; resume with Last-Event-ID)", parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: text/event-stream}}}
+  /v1/executions/{id}/output:
+    get:
+      summary: Page through raw output
+      parameters:
+        - {$ref: "#/components/parameters/id"}
+        - {name: stream, in: query, schema: {type: string, enum: [stdout, stderr]}}
+        - {name: offset, in: query, schema: {type: integer}, description: "negative = from end"}
+        - {name: limit, in: query, schema: {type: integer}}
+      responses: {"200": {description: OK}}
+  /v1/executions/{id}/grep:
+    get:
+      summary: Regex search over an execution log
+      parameters:
+        - {$ref: "#/components/parameters/id"}
+        - {name: pattern, in: query, required: true, schema: {type: string}}
+        - {name: stream, in: query, schema: {type: string}}
+      responses: {"200": {description: OK}}
+  /v1/executions/{id}/signal:
+    post: {summary: Signal the process group (default SIGTERM), parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/executions/{id}/stdin:
+    post: {summary: Write to stdin, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/snapshots:
+    get: {summary: List snapshots (?sandbox_id=), responses: {"200": {description: OK}}}
+  /v1/artifacts:
+    get: {summary: List artifacts (?sandbox_id=&kind=), responses: {"200": {description: OK}}}
+  /v1/artifacts/{id}/content:
+    get: {summary: Download artifact bytes, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/artifacts/{id}/undo:
+    post: {summary: Restore a backup artifact to the host repo, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
+  /v1/events:
+    get: {summary: SSE feed of daemon events (?sandbox_id=; resume with Last-Event-ID), responses: {"200": {description: text/event-stream}}}
+  /v1/gc:
+    post: {summary: Garbage collection (dry_run supported), responses: {"200": {description: OK}}}
+  /metrics:
+    get: {summary: Prometheus metrics, responses: {"200": {description: OK}}}

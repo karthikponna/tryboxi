@@ -31,6 +31,7 @@ type Net interface {
 	Forward(guestPort uint16, hostPort int) (int, error)
 	Forwards() map[uint16]int
 	DialGuest(ctx context.Context, port uint16) (net.Conn, error)
+	SetPolicy(p *policy.Policy)
 	Close() error
 }
 

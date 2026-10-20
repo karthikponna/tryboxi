@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	mdns "github.com/miekg/dns"
@@ -29,6 +30,20 @@ type Handler struct {
 	Resolver Resolver
 	OnDeny   DenyFunc
 	TTL      uint32
+	mu       sync.RWMutex
+}
+
+// SetPolicy swaps the policy (e.g. when a warm-pool VM is claimed).
+func (h *Handler) SetPolicy(p *policy.Policy) {
+	h.mu.Lock()
+	h.Policy = p
+	h.mu.Unlock()
+}
+
+func (h *Handler) pol() *policy.Policy {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.Policy
 }
 
 // New returns a handler using the host's resolver.
@@ -51,7 +66,7 @@ func (h *Handler) Answer(ctx context.Context, q []byte) ([]byte, error) {
 	}
 	qq := req.Question[0]
 	name := strings.TrimSuffix(strings.ToLower(qq.Name), ".")
-	if !h.Policy.AllowHost(name) {
+	if !h.pol().AllowHost(name) {
 		if h.OnDeny != nil {
 			h.OnDeny(name, "not in allowlist")
 		}
@@ -79,7 +94,7 @@ func (h *Handler) Answer(ctx context.Context, q []byte) ([]byte, error) {
 		return resp.Pack()
 	}
 	for _, ip := range ips {
-		if !h.Policy.AllowResolvedIP(ip) {
+		if !h.pol().AllowResolvedIP(ip) {
 			if h.OnDeny != nil {
 				h.OnDeny(name, "resolves to blocked address "+ip.String())
 			}
@@ -101,7 +116,7 @@ func (h *Handler) ResolveForDial(ctx context.Context, host string) (netip.Addr, 
 		return netip.Addr{}, err
 	}
 	for _, ip := range ips {
-		if h.Policy.AllowResolvedIP(ip) {
+		if h.pol().AllowResolvedIP(ip) {
 			return ip.Unmap(), nil
 		}
 	}

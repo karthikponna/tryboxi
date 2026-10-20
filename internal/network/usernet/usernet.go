@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/containers/gvisor-tap-vsock/pkg/tap"
@@ -56,7 +57,7 @@ type Event struct {
 
 // Network is one VM's virtual network.
 type Network struct {
-	policy *policy.Policy
+	pol    atomic.Pointer[policy.Policy]
 	dns    *sbxdns.Handler
 	stack  *stack.Stack
 	sw     *tap.Switch
@@ -87,13 +88,13 @@ func New(p *policy.Policy, onEvent func(Event), log *slog.Logger) (*Network, err
 		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF, 4<<20)
 	}
 	n := &Network{
-		policy:   p,
 		host:     os.NewFile(uintptr(fds[0]), "usernet-host"),
 		guest:    os.NewFile(uintptr(fds[1]), "usernet-guest"),
 		onEv:     onEvent,
 		log:      log,
 		forwards: map[uint16]net.Listener{},
 	}
+	n.pol.Store(p)
 	n.dns = sbxdns.New(p, func(name, reason string) {
 		n.emit(Event{Type: "net.denied", Host: name, Reason: "dns: " + reason})
 	})
@@ -130,19 +131,19 @@ func New(p *policy.Policy, onEvent func(Event), log *slog.Logger) (*Network, err
 	s.SetRouteTable([]tcpip.Route{{Destination: sub, NIC: 1}})
 	n.stack = s
 
-	if p.Mode != policy.ModeNone {
-		tcpFwd := tcp.NewForwarder(s, 0, 512, n.handleTCP)
-		s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpFwd.HandlePacket)
-		udpFwd := udp.NewForwarder(s, func(r *udp.ForwarderRequest) bool {
-			id := r.ID()
+	tcpFwd := tcp.NewForwarder(s, 0, 512, n.handleTCP)
+	s.SetTransportProtocolHandler(tcp.ProtocolNumber, tcpFwd.HandlePacket)
+	udpFwd := udp.NewForwarder(s, func(r *udp.ForwarderRequest) bool {
+		id := r.ID()
+		if n.pol.Load().Mode != policy.ModeNone {
 			n.emit(Event{Type: "net.denied", Dest: fmt.Sprintf("udp %s:%d", id.LocalAddress, id.LocalPort), Reason: "udp is only allowed for DNS"})
-			return true
-		})
-		s.SetTransportProtocolHandler(udp.ProtocolNumber, udpFwd.HandlePacket)
-		if err := n.serveDNS(); err != nil {
-			n.Close()
-			return nil, err
 		}
+		return true
+	})
+	s.SetTransportProtocolHandler(udp.ProtocolNumber, udpFwd.HandlePacket)
+	if err := n.serveDNS(); err != nil {
+		n.Close()
+		return nil, err
 	}
 
 	conn, err := net.FileConn(n.host)
@@ -158,6 +159,12 @@ func New(p *policy.Policy, onEvent func(Event), log *slog.Logger) (*Network, err
 		}
 	}()
 	return n, nil
+}
+
+// SetPolicy swaps the egress policy; new connections use it immediately.
+func (n *Network) SetPolicy(p *policy.Policy) {
+	n.pol.Store(p)
+	n.dns.SetPolicy(p)
 }
 
 // GuestFile is the socket the VM's NIC attaches to.
@@ -232,7 +239,8 @@ func (n *Network) handleTCP(r *tcp.ForwarderRequest) {
 	port := id.LocalPort
 	destStr := net.JoinHostPort(dst.String(), strconv.Itoa(int(port)))
 
-	if dst.String() == GatewayIP {
+	pol := n.pol.Load()
+	if dst.String() == GatewayIP || pol.Mode == policy.ModeNone {
 		r.Complete(true)
 		return
 	}
@@ -243,7 +251,7 @@ func (n *Network) handleTCP(r *tcp.ForwarderRequest) {
 	}
 
 	// Raw-IP rules (full mode, or CIDR allow entries) dial immediately.
-	if n.policy.AllowIP(dst, port) {
+	if pol.AllowIP(dst, port) {
 		up, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(n.ctx, "tcp", destStr)
 		if err != nil {
 			r.Complete(true)
@@ -259,7 +267,7 @@ func (n *Network) handleTCP(r *tcp.ForwarderRequest) {
 	}
 
 	// Allowlist mode: only hostname-identified HTTP(S) can pass.
-	if !n.policy.HostPort(port) {
+	if !pol.HostPort(port) {
 		n.emit(Event{Type: "net.denied", Dest: destStr, Reason: "port not allowed for hostname rules"})
 		r.Complete(true)
 		return
@@ -274,7 +282,7 @@ func (n *Network) handleTCP(r *tcp.ForwarderRequest) {
 		guest.Close()
 		return
 	}
-	if !n.policy.AllowHostPort(res.Host, port) {
+	if !pol.AllowHostPort(res.Host, port) {
 		n.emit(Event{Type: "net.denied", Host: res.Host, Dest: destStr, Reason: "host not in allowlist"})
 		guest.Close()
 		return
