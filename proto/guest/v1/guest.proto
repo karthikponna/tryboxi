@@ -23,6 +23,8 @@ service Guest {
   rpc GetFiles(GetFilesRequest) returns (stream DataChunk);
   rpc Stat(StatRequest) returns (StatResponse);
   rpc Diff(DiffRequest) returns (DiffResponse);
+  // Changes lists regular files under dir modified at or after since_ms.
+  rpc Changes(ChangesRequest) returns (ChangesResponse);
 
   rpc SyncTime(SyncTimeRequest) returns (SyncTimeResponse);
   rpc Reseed(ReseedRequest) returns (ReseedResponse);
@@ -150,9 +152,27 @@ message PutFilesResponse {
 }
 
 message GetFilesRequest {
-  string path = 1;              // file or directory
+  string path = 1;              // file or directory; base dir when paths is set
   repeated string exclude = 2;  // glob patterns relative to path
   uint64 max_bytes = 3;
+  repeated string paths = 4;    // relative to path; missing files are skipped
+}
+
+message ChangesRequest {
+  string dir = 1;
+  int64 since_ms = 2;
+  repeated string exclude_dirs = 3;  // directory base names to skip
+  uint32 max_files = 4;
+}
+message ChangesResponse {
+  repeated string paths = 1;
+  bool truncated = 2;
+}
+
+message FileChange {
+  string path = 1;
+  string status = 2;    // A, M, D, R, T
+  string old_path = 3;  // for renames
 }
 message DataChunk {
   bytes data = 1;
@@ -177,6 +197,7 @@ message DiffResponse {
   repeated string untracked = 2;   // untracked, non-ignored files
   repeated string changed = 3;     // all paths changed vs HEAD (incl. untracked)
   string head = 4;
+  repeated FileChange changes = 5; // tracked changes with status
 }
 
 message SyncTimeRequest {

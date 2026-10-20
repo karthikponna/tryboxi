@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Result summarizes an extraction.
@@ -173,6 +174,95 @@ func mkParents(dest, relDir string, uid, gid int) error {
 		}
 	}
 	return nil
+}
+
+// ChangedSince walks dir and returns regular files (relative paths) whose
+// mtime is at or after since, skipping directories named in excludeDirs
+// and .git.
+func ChangedSince(dir string, since time.Time, excludeDirs []string, maxFiles int) ([]string, bool, error) {
+	if maxFiles <= 0 {
+		maxFiles = 1000
+	}
+	skip := map[string]bool{".git": true}
+	for _, d := range excludeDirs {
+		skip[d] = true
+	}
+	var out []string
+	truncated := false
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if p != dir && skip[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if !info.ModTime().Before(since) {
+			if len(out) >= maxFiles {
+				truncated = true
+				return filepath.SkipAll
+			}
+			rel, _ := filepath.Rel(dir, p)
+			out = append(out, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	return out, truncated, err
+}
+
+// ArchivePaths writes the listed paths (relative to base) to w as a tar
+// stream. Missing paths are skipped; directories are not recursed.
+func ArchivePaths(w io.Writer, base string, paths []string, maxBytes uint64) error {
+	tw := tar.NewWriter(w)
+	var total uint64
+	for _, rel := range paths {
+		c, err := cleanRel(rel)
+		if err != nil || c == "" {
+			continue
+		}
+		full := filepath.Join(base, c)
+		fi, err := os.Lstat(full)
+		if err != nil || fi.IsDir() {
+			continue
+		}
+		link := ""
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			link, _ = os.Readlink(full)
+		}
+		h, err := tar.FileInfoHeader(fi, link)
+		if err != nil {
+			return err
+		}
+		h.Name, h.Uname, h.Gname = c, "", ""
+		if err := tw.WriteHeader(h); err != nil {
+			return err
+		}
+		if fi.Mode().IsRegular() {
+			total += uint64(fi.Size())
+			if maxBytes > 0 && total > maxBytes {
+				return ErrTooLarge
+			}
+			f, err := os.Open(full)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(tw, f)
+			f.Close()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return tw.Close()
 }
 
 // ErrTooLarge is returned when an archive would exceed maxBytes.

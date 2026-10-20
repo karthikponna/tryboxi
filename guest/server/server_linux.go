@@ -311,7 +311,13 @@ func (s *Server) GetFiles(req *guestv1.GetFilesRequest, stream grpc.ServerStream
 		return status.Error(codes.NotFound, err.Error())
 	}
 	bw := bufio.NewWriterSize(chunkWriter{stream}, 256*1024)
-	if err := files.Archive(bw, req.Path, req.Exclude, req.MaxBytes); err != nil {
+	var err error
+	if len(req.Paths) > 0 {
+		err = files.ArchivePaths(bw, req.Path, req.Paths, req.MaxBytes)
+	} else {
+		err = files.Archive(bw, req.Path, req.Exclude, req.MaxBytes)
+	}
+	if err != nil {
 		if errors.Is(err, files.ErrTooLarge) {
 			return status.Error(codes.ResourceExhausted, err.Error())
 		}
@@ -389,12 +395,41 @@ func (s *Server) Diff(ctx context.Context, req *guestv1.DiffRequest) (*guestv1.D
 		if patch, err := git(ctx, dir, "diff", "--binary", "--no-color", "--no-ext-diff", "HEAD"); err == nil {
 			resp.Patch = patch
 		}
-		if names, err := git(ctx, dir, "diff", "--name-only", "--no-color", "HEAD"); err == nil {
-			resp.Changed = lines(names)
+		if ns, err := git(ctx, dir, "diff", "--name-status", "-z", "--no-color", "-M", "HEAD"); err == nil {
+			parts := bytes.Split(bytes.TrimRight(ns, "\x00"), []byte{0})
+			for i := 0; i < len(parts); i++ {
+				st := string(parts[i])
+				if st == "" {
+					continue
+				}
+				fc := &guestv1.FileChange{Status: st[:1]}
+				if (st[0] == 'R' || st[0] == 'C') && i+2 < len(parts) {
+					fc.OldPath = string(parts[i+1])
+					fc.Path = string(parts[i+2])
+					i += 2
+				} else if i+1 < len(parts) {
+					fc.Path = string(parts[i+1])
+					i++
+				}
+				resp.Changes = append(resp.Changes, fc)
+				resp.Changed = append(resp.Changed, fc.Path)
+			}
 		}
 	}
 	resp.Changed = append(resp.Changed, resp.Untracked...)
 	return resp, nil
+}
+
+func (s *Server) Changes(ctx context.Context, req *guestv1.ChangesRequest) (*guestv1.ChangesResponse, error) {
+	dir := req.Dir
+	if dir == "" {
+		dir = "/workspace"
+	}
+	paths, truncated, err := files.ChangedSince(dir, time.UnixMilli(req.SinceMs), req.ExcludeDirs, int(req.MaxFiles))
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &guestv1.ChangesResponse{Paths: paths, Truncated: truncated}, nil
 }
 
 func (s *Server) SyncTime(ctx context.Context, req *guestv1.SyncTimeRequest) (*guestv1.SyncTimeResponse, error) {

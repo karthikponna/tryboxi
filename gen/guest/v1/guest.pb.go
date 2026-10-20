@@ -1320,9 +1320,10 @@ func (x *PutFilesResponse) GetBytesWritten() uint64 {
 
 type GetFilesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`       // file or directory
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`       // file or directory; base dir when paths is set
 	Exclude       []string               `protobuf:"bytes,2,rep,name=exclude,proto3" json:"exclude,omitempty"` // glob patterns relative to path
 	MaxBytes      uint64                 `protobuf:"varint,3,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
+	Paths         []string               `protobuf:"bytes,4,rep,name=paths,proto3" json:"paths,omitempty"` // relative to path; missing files are skipped
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1378,6 +1379,193 @@ func (x *GetFilesRequest) GetMaxBytes() uint64 {
 	return 0
 }
 
+func (x *GetFilesRequest) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+type ChangesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Dir           string                 `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
+	SinceMs       int64                  `protobuf:"varint,2,opt,name=since_ms,json=sinceMs,proto3" json:"since_ms,omitempty"`
+	ExcludeDirs   []string               `protobuf:"bytes,3,rep,name=exclude_dirs,json=excludeDirs,proto3" json:"exclude_dirs,omitempty"` // directory base names to skip
+	MaxFiles      uint32                 `protobuf:"varint,4,opt,name=max_files,json=maxFiles,proto3" json:"max_files,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChangesRequest) Reset() {
+	*x = ChangesRequest{}
+	mi := &file_guest_v1_guest_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChangesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangesRequest) ProtoMessage() {}
+
+func (x *ChangesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1_guest_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangesRequest.ProtoReflect.Descriptor instead.
+func (*ChangesRequest) Descriptor() ([]byte, []int) {
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ChangesRequest) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *ChangesRequest) GetSinceMs() int64 {
+	if x != nil {
+		return x.SinceMs
+	}
+	return 0
+}
+
+func (x *ChangesRequest) GetExcludeDirs() []string {
+	if x != nil {
+		return x.ExcludeDirs
+	}
+	return nil
+}
+
+func (x *ChangesRequest) GetMaxFiles() uint32 {
+	if x != nil {
+		return x.MaxFiles
+	}
+	return 0
+}
+
+type ChangesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Paths         []string               `protobuf:"bytes,1,rep,name=paths,proto3" json:"paths,omitempty"`
+	Truncated     bool                   `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChangesResponse) Reset() {
+	*x = ChangesResponse{}
+	mi := &file_guest_v1_guest_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChangesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangesResponse) ProtoMessage() {}
+
+func (x *ChangesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1_guest_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangesResponse.ProtoReflect.Descriptor instead.
+func (*ChangesResponse) Descriptor() ([]byte, []int) {
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ChangesResponse) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *ChangesResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+type FileChange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`                  // A, M, D, R, T
+	OldPath       string                 `protobuf:"bytes,3,opt,name=old_path,json=oldPath,proto3" json:"old_path,omitempty"` // for renames
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileChange) Reset() {
+	*x = FileChange{}
+	mi := &file_guest_v1_guest_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileChange) ProtoMessage() {}
+
+func (x *FileChange) ProtoReflect() protoreflect.Message {
+	mi := &file_guest_v1_guest_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileChange.ProtoReflect.Descriptor instead.
+func (*FileChange) Descriptor() ([]byte, []int) {
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *FileChange) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *FileChange) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *FileChange) GetOldPath() string {
+	if x != nil {
+		return x.OldPath
+	}
+	return ""
+}
+
 type DataChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
@@ -1387,7 +1575,7 @@ type DataChunk struct {
 
 func (x *DataChunk) Reset() {
 	*x = DataChunk{}
-	mi := &file_guest_v1_guest_proto_msgTypes[21]
+	mi := &file_guest_v1_guest_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1399,7 +1587,7 @@ func (x *DataChunk) String() string {
 func (*DataChunk) ProtoMessage() {}
 
 func (x *DataChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[21]
+	mi := &file_guest_v1_guest_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1412,7 +1600,7 @@ func (x *DataChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DataChunk.ProtoReflect.Descriptor instead.
 func (*DataChunk) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{21}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DataChunk) GetData() []byte {
@@ -1431,7 +1619,7 @@ type StatRequest struct {
 
 func (x *StatRequest) Reset() {
 	*x = StatRequest{}
-	mi := &file_guest_v1_guest_proto_msgTypes[22]
+	mi := &file_guest_v1_guest_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1443,7 +1631,7 @@ func (x *StatRequest) String() string {
 func (*StatRequest) ProtoMessage() {}
 
 func (x *StatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[22]
+	mi := &file_guest_v1_guest_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1456,7 +1644,7 @@ func (x *StatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatRequest.ProtoReflect.Descriptor instead.
 func (*StatRequest) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{22}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *StatRequest) GetPath() string {
@@ -1479,7 +1667,7 @@ type StatResponse struct {
 
 func (x *StatResponse) Reset() {
 	*x = StatResponse{}
-	mi := &file_guest_v1_guest_proto_msgTypes[23]
+	mi := &file_guest_v1_guest_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1491,7 +1679,7 @@ func (x *StatResponse) String() string {
 func (*StatResponse) ProtoMessage() {}
 
 func (x *StatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[23]
+	mi := &file_guest_v1_guest_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1504,7 +1692,7 @@ func (x *StatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatResponse.ProtoReflect.Descriptor instead.
 func (*StatResponse) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{23}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *StatResponse) GetExists() bool {
@@ -1551,7 +1739,7 @@ type DiffRequest struct {
 
 func (x *DiffRequest) Reset() {
 	*x = DiffRequest{}
-	mi := &file_guest_v1_guest_proto_msgTypes[24]
+	mi := &file_guest_v1_guest_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1563,7 +1751,7 @@ func (x *DiffRequest) String() string {
 func (*DiffRequest) ProtoMessage() {}
 
 func (x *DiffRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[24]
+	mi := &file_guest_v1_guest_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1576,7 +1764,7 @@ func (x *DiffRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffRequest.ProtoReflect.Descriptor instead.
 func (*DiffRequest) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{24}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *DiffRequest) GetDir() string {
@@ -1592,13 +1780,14 @@ type DiffResponse struct {
 	Untracked     []string               `protobuf:"bytes,2,rep,name=untracked,proto3" json:"untracked,omitempty"` // untracked, non-ignored files
 	Changed       []string               `protobuf:"bytes,3,rep,name=changed,proto3" json:"changed,omitempty"`     // all paths changed vs HEAD (incl. untracked)
 	Head          string                 `protobuf:"bytes,4,opt,name=head,proto3" json:"head,omitempty"`
+	Changes       []*FileChange          `protobuf:"bytes,5,rep,name=changes,proto3" json:"changes,omitempty"` // tracked changes with status
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DiffResponse) Reset() {
 	*x = DiffResponse{}
-	mi := &file_guest_v1_guest_proto_msgTypes[25]
+	mi := &file_guest_v1_guest_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1610,7 +1799,7 @@ func (x *DiffResponse) String() string {
 func (*DiffResponse) ProtoMessage() {}
 
 func (x *DiffResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[25]
+	mi := &file_guest_v1_guest_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1623,7 +1812,7 @@ func (x *DiffResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiffResponse.ProtoReflect.Descriptor instead.
 func (*DiffResponse) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{25}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *DiffResponse) GetPatch() []byte {
@@ -1654,6 +1843,13 @@ func (x *DiffResponse) GetHead() string {
 	return ""
 }
 
+func (x *DiffResponse) GetChanges() []*FileChange {
+	if x != nil {
+		return x.Changes
+	}
+	return nil
+}
+
 type SyncTimeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UnixNs        int64                  `protobuf:"varint,1,opt,name=unix_ns,json=unixNs,proto3" json:"unix_ns,omitempty"`
@@ -1663,7 +1859,7 @@ type SyncTimeRequest struct {
 
 func (x *SyncTimeRequest) Reset() {
 	*x = SyncTimeRequest{}
-	mi := &file_guest_v1_guest_proto_msgTypes[26]
+	mi := &file_guest_v1_guest_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1675,7 +1871,7 @@ func (x *SyncTimeRequest) String() string {
 func (*SyncTimeRequest) ProtoMessage() {}
 
 func (x *SyncTimeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[26]
+	mi := &file_guest_v1_guest_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1688,7 +1884,7 @@ func (x *SyncTimeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncTimeRequest.ProtoReflect.Descriptor instead.
 func (*SyncTimeRequest) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{26}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SyncTimeRequest) GetUnixNs() int64 {
@@ -1707,7 +1903,7 @@ type SyncTimeResponse struct {
 
 func (x *SyncTimeResponse) Reset() {
 	*x = SyncTimeResponse{}
-	mi := &file_guest_v1_guest_proto_msgTypes[27]
+	mi := &file_guest_v1_guest_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1719,7 +1915,7 @@ func (x *SyncTimeResponse) String() string {
 func (*SyncTimeResponse) ProtoMessage() {}
 
 func (x *SyncTimeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[27]
+	mi := &file_guest_v1_guest_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1732,7 +1928,7 @@ func (x *SyncTimeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncTimeResponse.ProtoReflect.Descriptor instead.
 func (*SyncTimeResponse) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{27}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SyncTimeResponse) GetSkewMs() int64 {
@@ -1751,7 +1947,7 @@ type ReseedRequest struct {
 
 func (x *ReseedRequest) Reset() {
 	*x = ReseedRequest{}
-	mi := &file_guest_v1_guest_proto_msgTypes[28]
+	mi := &file_guest_v1_guest_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1763,7 +1959,7 @@ func (x *ReseedRequest) String() string {
 func (*ReseedRequest) ProtoMessage() {}
 
 func (x *ReseedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[28]
+	mi := &file_guest_v1_guest_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1776,7 +1972,7 @@ func (x *ReseedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReseedRequest.ProtoReflect.Descriptor instead.
 func (*ReseedRequest) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{28}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ReseedRequest) GetEntropy() []byte {
@@ -1794,7 +1990,7 @@ type ReseedResponse struct {
 
 func (x *ReseedResponse) Reset() {
 	*x = ReseedResponse{}
-	mi := &file_guest_v1_guest_proto_msgTypes[29]
+	mi := &file_guest_v1_guest_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1806,7 +2002,7 @@ func (x *ReseedResponse) String() string {
 func (*ReseedResponse) ProtoMessage() {}
 
 func (x *ReseedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[29]
+	mi := &file_guest_v1_guest_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1819,7 +2015,7 @@ func (x *ReseedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReseedResponse.ProtoReflect.Descriptor instead.
 func (*ReseedResponse) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{29}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{32}
 }
 
 type ConfigureRequest struct {
@@ -1840,7 +2036,7 @@ type ConfigureRequest struct {
 
 func (x *ConfigureRequest) Reset() {
 	*x = ConfigureRequest{}
-	mi := &file_guest_v1_guest_proto_msgTypes[30]
+	mi := &file_guest_v1_guest_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1852,7 +2048,7 @@ func (x *ConfigureRequest) String() string {
 func (*ConfigureRequest) ProtoMessage() {}
 
 func (x *ConfigureRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[30]
+	mi := &file_guest_v1_guest_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1865,7 +2061,7 @@ func (x *ConfigureRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigureRequest.ProtoReflect.Descriptor instead.
 func (*ConfigureRequest) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{30}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ConfigureRequest) GetHostname() string {
@@ -1939,7 +2135,7 @@ type ConfigureResponse struct {
 
 func (x *ConfigureResponse) Reset() {
 	*x = ConfigureResponse{}
-	mi := &file_guest_v1_guest_proto_msgTypes[31]
+	mi := &file_guest_v1_guest_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1951,7 +2147,7 @@ func (x *ConfigureResponse) String() string {
 func (*ConfigureResponse) ProtoMessage() {}
 
 func (x *ConfigureResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[31]
+	mi := &file_guest_v1_guest_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1964,7 +2160,7 @@ func (x *ConfigureResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigureResponse.ProtoReflect.Descriptor instead.
 func (*ConfigureResponse) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{31}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{34}
 }
 
 type ShutdownRequest struct {
@@ -1976,7 +2172,7 @@ type ShutdownRequest struct {
 
 func (x *ShutdownRequest) Reset() {
 	*x = ShutdownRequest{}
-	mi := &file_guest_v1_guest_proto_msgTypes[32]
+	mi := &file_guest_v1_guest_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1988,7 +2184,7 @@ func (x *ShutdownRequest) String() string {
 func (*ShutdownRequest) ProtoMessage() {}
 
 func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[32]
+	mi := &file_guest_v1_guest_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2001,7 +2197,7 @@ func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShutdownRequest.ProtoReflect.Descriptor instead.
 func (*ShutdownRequest) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{32}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ShutdownRequest) GetReboot() bool {
@@ -2019,7 +2215,7 @@ type ShutdownResponse struct {
 
 func (x *ShutdownResponse) Reset() {
 	*x = ShutdownResponse{}
-	mi := &file_guest_v1_guest_proto_msgTypes[33]
+	mi := &file_guest_v1_guest_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2031,7 +2227,7 @@ func (x *ShutdownResponse) String() string {
 func (*ShutdownResponse) ProtoMessage() {}
 
 func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_guest_v1_guest_proto_msgTypes[33]
+	mi := &file_guest_v1_guest_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2044,7 +2240,7 @@ func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShutdownResponse.ProtoReflect.Descriptor instead.
 func (*ShutdownResponse) Descriptor() ([]byte, []int) {
-	return file_guest_v1_guest_proto_rawDescGZIP(), []int{33}
+	return file_guest_v1_guest_proto_rawDescGZIP(), []int{36}
 }
 
 var File_guest_v1_guest_proto protoreflect.FileDescriptor
@@ -2145,11 +2341,25 @@ const file_guest_v1_guest_proto_rawDesc = "" +
 	"\x10PutFilesResponse\x12#\n" +
 	"\rfiles_written\x18\x01 \x01(\rR\ffilesWritten\x12#\n" +
 	"\rfiles_deleted\x18\x02 \x01(\rR\ffilesDeleted\x12#\n" +
-	"\rbytes_written\x18\x03 \x01(\x04R\fbytesWritten\"\\\n" +
+	"\rbytes_written\x18\x03 \x01(\x04R\fbytesWritten\"r\n" +
 	"\x0fGetFilesRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\aexclude\x18\x02 \x03(\tR\aexclude\x12\x1b\n" +
-	"\tmax_bytes\x18\x03 \x01(\x04R\bmaxBytes\"\x1f\n" +
+	"\tmax_bytes\x18\x03 \x01(\x04R\bmaxBytes\x12\x14\n" +
+	"\x05paths\x18\x04 \x03(\tR\x05paths\"}\n" +
+	"\x0eChangesRequest\x12\x10\n" +
+	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x19\n" +
+	"\bsince_ms\x18\x02 \x01(\x03R\asinceMs\x12!\n" +
+	"\fexclude_dirs\x18\x03 \x03(\tR\vexcludeDirs\x12\x1b\n" +
+	"\tmax_files\x18\x04 \x01(\rR\bmaxFiles\"E\n" +
+	"\x0fChangesResponse\x12\x14\n" +
+	"\x05paths\x18\x01 \x03(\tR\x05paths\x12\x1c\n" +
+	"\ttruncated\x18\x02 \x01(\bR\ttruncated\"S\n" +
+	"\n" +
+	"FileChange\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x19\n" +
+	"\bold_path\x18\x03 \x01(\tR\aoldPath\"\x1f\n" +
 	"\tDataChunk\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\"!\n" +
 	"\vStatRequest\x12\x12\n" +
@@ -2161,12 +2371,13 @@ const file_guest_v1_guest_proto_rawDesc = "" +
 	"\x04mode\x18\x04 \x01(\rR\x04mode\x12\x19\n" +
 	"\bmtime_ms\x18\x05 \x01(\x03R\amtimeMs\"\x1f\n" +
 	"\vDiffRequest\x12\x10\n" +
-	"\x03dir\x18\x01 \x01(\tR\x03dir\"p\n" +
+	"\x03dir\x18\x01 \x01(\tR\x03dir\"\xa0\x01\n" +
 	"\fDiffResponse\x12\x14\n" +
 	"\x05patch\x18\x01 \x01(\fR\x05patch\x12\x1c\n" +
 	"\tuntracked\x18\x02 \x03(\tR\tuntracked\x12\x18\n" +
 	"\achanged\x18\x03 \x03(\tR\achanged\x12\x12\n" +
-	"\x04head\x18\x04 \x01(\tR\x04head\"*\n" +
+	"\x04head\x18\x04 \x01(\tR\x04head\x12.\n" +
+	"\achanges\x18\x05 \x03(\v2\x14.guest.v1.FileChangeR\achanges\"*\n" +
 	"\x0fSyncTimeRequest\x12\x17\n" +
 	"\aunix_ns\x18\x01 \x01(\x03R\x06unixNs\"+\n" +
 	"\x10SyncTimeResponse\x12\x17\n" +
@@ -2196,7 +2407,7 @@ const file_guest_v1_guest_proto_rawDesc = "" +
 	"\x06Stream\x12\x16\n" +
 	"\x12STREAM_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rSTREAM_STDOUT\x10\x01\x12\x11\n" +
-	"\rSTREAM_STDERR\x10\x022\xdb\a\n" +
+	"\rSTREAM_STDERR\x10\x022\x9b\b\n" +
 	"\x05Guest\x125\n" +
 	"\x04Ping\x12\x15.guest.v1.PingRequest\x1a\x16.guest.v1.PingResponse\x12>\n" +
 	"\aVersion\x12\x18.guest.v1.VersionRequest\x1a\x19.guest.v1.VersionResponse\x129\n" +
@@ -2210,7 +2421,8 @@ const file_guest_v1_guest_proto_rawDesc = "" +
 	"\bPutFiles\x12\x17.guest.v1.PutFilesChunk\x1a\x1a.guest.v1.PutFilesResponse(\x01\x12<\n" +
 	"\bGetFiles\x12\x19.guest.v1.GetFilesRequest\x1a\x13.guest.v1.DataChunk0\x01\x125\n" +
 	"\x04Stat\x12\x15.guest.v1.StatRequest\x1a\x16.guest.v1.StatResponse\x125\n" +
-	"\x04Diff\x12\x15.guest.v1.DiffRequest\x1a\x16.guest.v1.DiffResponse\x12A\n" +
+	"\x04Diff\x12\x15.guest.v1.DiffRequest\x1a\x16.guest.v1.DiffResponse\x12>\n" +
+	"\aChanges\x12\x18.guest.v1.ChangesRequest\x1a\x19.guest.v1.ChangesResponse\x12A\n" +
 	"\bSyncTime\x12\x19.guest.v1.SyncTimeRequest\x1a\x1a.guest.v1.SyncTimeResponse\x12;\n" +
 	"\x06Reseed\x12\x17.guest.v1.ReseedRequest\x1a\x18.guest.v1.ReseedResponse\x12D\n" +
 	"\tConfigure\x12\x1a.guest.v1.ConfigureRequest\x1a\x1b.guest.v1.ConfigureResponse\x12A\n" +
@@ -2229,7 +2441,7 @@ func file_guest_v1_guest_proto_rawDescGZIP() []byte {
 }
 
 var file_guest_v1_guest_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_guest_v1_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_guest_v1_guest_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
 var file_guest_v1_guest_proto_goTypes = []any{
 	(Stream)(0),                // 0: guest.v1.Stream
 	(*PingRequest)(nil),        // 1: guest.v1.PingRequest
@@ -2253,66 +2465,72 @@ var file_guest_v1_guest_proto_goTypes = []any{
 	(*PutFilesChunk)(nil),      // 19: guest.v1.PutFilesChunk
 	(*PutFilesResponse)(nil),   // 20: guest.v1.PutFilesResponse
 	(*GetFilesRequest)(nil),    // 21: guest.v1.GetFilesRequest
-	(*DataChunk)(nil),          // 22: guest.v1.DataChunk
-	(*StatRequest)(nil),        // 23: guest.v1.StatRequest
-	(*StatResponse)(nil),       // 24: guest.v1.StatResponse
-	(*DiffRequest)(nil),        // 25: guest.v1.DiffRequest
-	(*DiffResponse)(nil),       // 26: guest.v1.DiffResponse
-	(*SyncTimeRequest)(nil),    // 27: guest.v1.SyncTimeRequest
-	(*SyncTimeResponse)(nil),   // 28: guest.v1.SyncTimeResponse
-	(*ReseedRequest)(nil),      // 29: guest.v1.ReseedRequest
-	(*ReseedResponse)(nil),     // 30: guest.v1.ReseedResponse
-	(*ConfigureRequest)(nil),   // 31: guest.v1.ConfigureRequest
-	(*ConfigureResponse)(nil),  // 32: guest.v1.ConfigureResponse
-	(*ShutdownRequest)(nil),    // 33: guest.v1.ShutdownRequest
-	(*ShutdownResponse)(nil),   // 34: guest.v1.ShutdownResponse
-	nil,                        // 35: guest.v1.ExecRequest.EnvEntry
-	nil,                        // 36: guest.v1.ConfigureRequest.EnvEntry
+	(*ChangesRequest)(nil),     // 22: guest.v1.ChangesRequest
+	(*ChangesResponse)(nil),    // 23: guest.v1.ChangesResponse
+	(*FileChange)(nil),         // 24: guest.v1.FileChange
+	(*DataChunk)(nil),          // 25: guest.v1.DataChunk
+	(*StatRequest)(nil),        // 26: guest.v1.StatRequest
+	(*StatResponse)(nil),       // 27: guest.v1.StatResponse
+	(*DiffRequest)(nil),        // 28: guest.v1.DiffRequest
+	(*DiffResponse)(nil),       // 29: guest.v1.DiffResponse
+	(*SyncTimeRequest)(nil),    // 30: guest.v1.SyncTimeRequest
+	(*SyncTimeResponse)(nil),   // 31: guest.v1.SyncTimeResponse
+	(*ReseedRequest)(nil),      // 32: guest.v1.ReseedRequest
+	(*ReseedResponse)(nil),     // 33: guest.v1.ReseedResponse
+	(*ConfigureRequest)(nil),   // 34: guest.v1.ConfigureRequest
+	(*ConfigureResponse)(nil),  // 35: guest.v1.ConfigureResponse
+	(*ShutdownRequest)(nil),    // 36: guest.v1.ShutdownRequest
+	(*ShutdownResponse)(nil),   // 37: guest.v1.ShutdownResponse
+	nil,                        // 38: guest.v1.ExecRequest.EnvEntry
+	nil,                        // 39: guest.v1.ConfigureRequest.EnvEntry
 }
 var file_guest_v1_guest_proto_depIdxs = []int32{
-	35, // 0: guest.v1.ExecRequest.env:type_name -> guest.v1.ExecRequest.EnvEntry
+	38, // 0: guest.v1.ExecRequest.env:type_name -> guest.v1.ExecRequest.EnvEntry
 	10, // 1: guest.v1.ExecFrame.output:type_name -> guest.v1.Output
 	11, // 2: guest.v1.ExecFrame.exit:type_name -> guest.v1.Exit
 	9,  // 3: guest.v1.ExecFrame.started:type_name -> guest.v1.Started
 	0,  // 4: guest.v1.Output.stream:type_name -> guest.v1.Stream
-	36, // 5: guest.v1.ConfigureRequest.env:type_name -> guest.v1.ConfigureRequest.EnvEntry
-	1,  // 6: guest.v1.Guest.Ping:input_type -> guest.v1.PingRequest
-	3,  // 7: guest.v1.Guest.Version:input_type -> guest.v1.VersionRequest
-	5,  // 8: guest.v1.Guest.Heartbeat:input_type -> guest.v1.HeartbeatRequest
-	7,  // 9: guest.v1.Guest.Exec:input_type -> guest.v1.ExecRequest
-	12, // 10: guest.v1.Guest.Attach:input_type -> guest.v1.AttachRequest
-	13, // 11: guest.v1.Guest.Ack:input_type -> guest.v1.AckRequest
-	15, // 12: guest.v1.Guest.Signal:input_type -> guest.v1.SignalRequest
-	17, // 13: guest.v1.Guest.WriteStdin:input_type -> guest.v1.WriteStdinRequest
-	19, // 14: guest.v1.Guest.PutFiles:input_type -> guest.v1.PutFilesChunk
-	21, // 15: guest.v1.Guest.GetFiles:input_type -> guest.v1.GetFilesRequest
-	23, // 16: guest.v1.Guest.Stat:input_type -> guest.v1.StatRequest
-	25, // 17: guest.v1.Guest.Diff:input_type -> guest.v1.DiffRequest
-	27, // 18: guest.v1.Guest.SyncTime:input_type -> guest.v1.SyncTimeRequest
-	29, // 19: guest.v1.Guest.Reseed:input_type -> guest.v1.ReseedRequest
-	31, // 20: guest.v1.Guest.Configure:input_type -> guest.v1.ConfigureRequest
-	33, // 21: guest.v1.Guest.Shutdown:input_type -> guest.v1.ShutdownRequest
-	2,  // 22: guest.v1.Guest.Ping:output_type -> guest.v1.PingResponse
-	4,  // 23: guest.v1.Guest.Version:output_type -> guest.v1.VersionResponse
-	6,  // 24: guest.v1.Guest.Heartbeat:output_type -> guest.v1.Beat
-	8,  // 25: guest.v1.Guest.Exec:output_type -> guest.v1.ExecFrame
-	8,  // 26: guest.v1.Guest.Attach:output_type -> guest.v1.ExecFrame
-	14, // 27: guest.v1.Guest.Ack:output_type -> guest.v1.AckResponse
-	16, // 28: guest.v1.Guest.Signal:output_type -> guest.v1.SignalResponse
-	18, // 29: guest.v1.Guest.WriteStdin:output_type -> guest.v1.WriteStdinResponse
-	20, // 30: guest.v1.Guest.PutFiles:output_type -> guest.v1.PutFilesResponse
-	22, // 31: guest.v1.Guest.GetFiles:output_type -> guest.v1.DataChunk
-	24, // 32: guest.v1.Guest.Stat:output_type -> guest.v1.StatResponse
-	26, // 33: guest.v1.Guest.Diff:output_type -> guest.v1.DiffResponse
-	28, // 34: guest.v1.Guest.SyncTime:output_type -> guest.v1.SyncTimeResponse
-	30, // 35: guest.v1.Guest.Reseed:output_type -> guest.v1.ReseedResponse
-	32, // 36: guest.v1.Guest.Configure:output_type -> guest.v1.ConfigureResponse
-	34, // 37: guest.v1.Guest.Shutdown:output_type -> guest.v1.ShutdownResponse
-	22, // [22:38] is the sub-list for method output_type
-	6,  // [6:22] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	24, // 5: guest.v1.DiffResponse.changes:type_name -> guest.v1.FileChange
+	39, // 6: guest.v1.ConfigureRequest.env:type_name -> guest.v1.ConfigureRequest.EnvEntry
+	1,  // 7: guest.v1.Guest.Ping:input_type -> guest.v1.PingRequest
+	3,  // 8: guest.v1.Guest.Version:input_type -> guest.v1.VersionRequest
+	5,  // 9: guest.v1.Guest.Heartbeat:input_type -> guest.v1.HeartbeatRequest
+	7,  // 10: guest.v1.Guest.Exec:input_type -> guest.v1.ExecRequest
+	12, // 11: guest.v1.Guest.Attach:input_type -> guest.v1.AttachRequest
+	13, // 12: guest.v1.Guest.Ack:input_type -> guest.v1.AckRequest
+	15, // 13: guest.v1.Guest.Signal:input_type -> guest.v1.SignalRequest
+	17, // 14: guest.v1.Guest.WriteStdin:input_type -> guest.v1.WriteStdinRequest
+	19, // 15: guest.v1.Guest.PutFiles:input_type -> guest.v1.PutFilesChunk
+	21, // 16: guest.v1.Guest.GetFiles:input_type -> guest.v1.GetFilesRequest
+	26, // 17: guest.v1.Guest.Stat:input_type -> guest.v1.StatRequest
+	28, // 18: guest.v1.Guest.Diff:input_type -> guest.v1.DiffRequest
+	22, // 19: guest.v1.Guest.Changes:input_type -> guest.v1.ChangesRequest
+	30, // 20: guest.v1.Guest.SyncTime:input_type -> guest.v1.SyncTimeRequest
+	32, // 21: guest.v1.Guest.Reseed:input_type -> guest.v1.ReseedRequest
+	34, // 22: guest.v1.Guest.Configure:input_type -> guest.v1.ConfigureRequest
+	36, // 23: guest.v1.Guest.Shutdown:input_type -> guest.v1.ShutdownRequest
+	2,  // 24: guest.v1.Guest.Ping:output_type -> guest.v1.PingResponse
+	4,  // 25: guest.v1.Guest.Version:output_type -> guest.v1.VersionResponse
+	6,  // 26: guest.v1.Guest.Heartbeat:output_type -> guest.v1.Beat
+	8,  // 27: guest.v1.Guest.Exec:output_type -> guest.v1.ExecFrame
+	8,  // 28: guest.v1.Guest.Attach:output_type -> guest.v1.ExecFrame
+	14, // 29: guest.v1.Guest.Ack:output_type -> guest.v1.AckResponse
+	16, // 30: guest.v1.Guest.Signal:output_type -> guest.v1.SignalResponse
+	18, // 31: guest.v1.Guest.WriteStdin:output_type -> guest.v1.WriteStdinResponse
+	20, // 32: guest.v1.Guest.PutFiles:output_type -> guest.v1.PutFilesResponse
+	25, // 33: guest.v1.Guest.GetFiles:output_type -> guest.v1.DataChunk
+	27, // 34: guest.v1.Guest.Stat:output_type -> guest.v1.StatResponse
+	29, // 35: guest.v1.Guest.Diff:output_type -> guest.v1.DiffResponse
+	23, // 36: guest.v1.Guest.Changes:output_type -> guest.v1.ChangesResponse
+	31, // 37: guest.v1.Guest.SyncTime:output_type -> guest.v1.SyncTimeResponse
+	33, // 38: guest.v1.Guest.Reseed:output_type -> guest.v1.ReseedResponse
+	35, // 39: guest.v1.Guest.Configure:output_type -> guest.v1.ConfigureResponse
+	37, // 40: guest.v1.Guest.Shutdown:output_type -> guest.v1.ShutdownResponse
+	24, // [24:41] is the sub-list for method output_type
+	7,  // [7:24] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_guest_v1_guest_proto_init() }
@@ -2331,7 +2549,7 @@ func file_guest_v1_guest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_guest_v1_guest_proto_rawDesc), len(file_guest_v1_guest_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   36,
+			NumMessages:   39,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

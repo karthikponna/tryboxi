@@ -31,6 +31,7 @@ const (
 	Guest_GetFiles_FullMethodName   = "/guest.v1.Guest/GetFiles"
 	Guest_Stat_FullMethodName       = "/guest.v1.Guest/Stat"
 	Guest_Diff_FullMethodName       = "/guest.v1.Guest/Diff"
+	Guest_Changes_FullMethodName    = "/guest.v1.Guest/Changes"
 	Guest_SyncTime_FullMethodName   = "/guest.v1.Guest/SyncTime"
 	Guest_Reseed_FullMethodName     = "/guest.v1.Guest/Reseed"
 	Guest_Configure_FullMethodName  = "/guest.v1.Guest/Configure"
@@ -58,6 +59,8 @@ type GuestClient interface {
 	GetFiles(ctx context.Context, in *GetFilesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DataChunk], error)
 	Stat(ctx context.Context, in *StatRequest, opts ...grpc.CallOption) (*StatResponse, error)
 	Diff(ctx context.Context, in *DiffRequest, opts ...grpc.CallOption) (*DiffResponse, error)
+	// Changes lists regular files under dir modified at or after since_ms.
+	Changes(ctx context.Context, in *ChangesRequest, opts ...grpc.CallOption) (*ChangesResponse, error)
 	SyncTime(ctx context.Context, in *SyncTimeRequest, opts ...grpc.CallOption) (*SyncTimeResponse, error)
 	Reseed(ctx context.Context, in *ReseedRequest, opts ...grpc.CallOption) (*ReseedResponse, error)
 	Configure(ctx context.Context, in *ConfigureRequest, opts ...grpc.CallOption) (*ConfigureResponse, error)
@@ -231,6 +234,16 @@ func (c *guestClient) Diff(ctx context.Context, in *DiffRequest, opts ...grpc.Ca
 	return out, nil
 }
 
+func (c *guestClient) Changes(ctx context.Context, in *ChangesRequest, opts ...grpc.CallOption) (*ChangesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ChangesResponse)
+	err := c.cc.Invoke(ctx, Guest_Changes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *guestClient) SyncTime(ctx context.Context, in *SyncTimeRequest, opts ...grpc.CallOption) (*SyncTimeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SyncTimeResponse)
@@ -292,6 +305,8 @@ type GuestServer interface {
 	GetFiles(*GetFilesRequest, grpc.ServerStreamingServer[DataChunk]) error
 	Stat(context.Context, *StatRequest) (*StatResponse, error)
 	Diff(context.Context, *DiffRequest) (*DiffResponse, error)
+	// Changes lists regular files under dir modified at or after since_ms.
+	Changes(context.Context, *ChangesRequest) (*ChangesResponse, error)
 	SyncTime(context.Context, *SyncTimeRequest) (*SyncTimeResponse, error)
 	Reseed(context.Context, *ReseedRequest) (*ReseedResponse, error)
 	Configure(context.Context, *ConfigureRequest) (*ConfigureResponse, error)
@@ -341,6 +356,9 @@ func (UnimplementedGuestServer) Stat(context.Context, *StatRequest) (*StatRespon
 }
 func (UnimplementedGuestServer) Diff(context.Context, *DiffRequest) (*DiffResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Diff not implemented")
+}
+func (UnimplementedGuestServer) Changes(context.Context, *ChangesRequest) (*ChangesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Changes not implemented")
 }
 func (UnimplementedGuestServer) SyncTime(context.Context, *SyncTimeRequest) (*SyncTimeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SyncTime not implemented")
@@ -552,6 +570,24 @@ func _Guest_Diff_Handler(srv interface{}, ctx context.Context, dec func(interfac
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Guest_Changes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GuestServer).Changes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Guest_Changes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GuestServer).Changes(ctx, req.(*ChangesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Guest_SyncTime_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SyncTimeRequest)
 	if err := dec(in); err != nil {
@@ -658,6 +694,10 @@ var Guest_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Diff",
 			Handler:    _Guest_Diff_Handler,
+		},
+		{
+			MethodName: "Changes",
+			Handler:    _Guest_Changes_Handler,
 		},
 		{
 			MethodName: "SyncTime",
