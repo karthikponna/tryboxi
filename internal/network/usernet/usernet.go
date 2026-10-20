@@ -57,14 +57,14 @@ type Event struct {
 
 // Network is one VM's virtual network.
 type Network struct {
-	pol    atomic.Pointer[policy.Policy]
-	dns    *sbxdns.Handler
-	stack  *stack.Stack
-	sw     *tap.Switch
-	host   *os.File // our end of the socketpair
-	guest  *os.File // VM end, handed to Virtualization.framework
-	onEv   func(Event)
-	log    *slog.Logger
+	pol   atomic.Pointer[policy.Policy]
+	dns   *sbxdns.Handler
+	stack *stack.Stack
+	sw    *tap.Switch
+	host  *os.File // our end of the socketpair
+	guest *os.File // VM end, handed to Virtualization.framework
+	onEv  func(Event)
+	log   *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc

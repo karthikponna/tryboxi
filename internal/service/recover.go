@@ -17,7 +17,9 @@ import (
 
 const rescueScript = `set -e
 mkdir -p /mnt/lost /tmp/recovery/files
-mount -o ro,noload /dev/vdb /mnt/lost 2>/dev/null || mount -o ro /dev/vdb /mnt/lost
+# The device is a private clone, so ext4 can replay its journal (recent
+# writes may only be in the journal after a crash).
+mount -o ro /dev/vdb /mnt/lost || mount -o ro,noload /dev/vdb /mnt/lost
 cd /mnt/lost/workspace
 if [ -d .git ]; then
   git -c safe.directory='*' diff --binary HEAD > /tmp/recovery/workspace.patch 2>/dev/null || true
@@ -34,8 +36,9 @@ umount /mnt/lost || true
 `
 
 // Recover extracts the workspace of a lost sandbox into a "recovery"
-// artifact using a rescue VM. The lost disk is attached read-only and is
-// never mounted on the host.
+// artifact using a rescue VM. The rescue VM gets a copy-on-write clone of
+// the lost disk (the original is never modified) and the disk is never
+// mounted on the host.
 func (m *Manager) Recover(ctx context.Context, id string) (client.Artifact, error) {
 	b, err := m.box(id)
 	if err != nil {
@@ -66,7 +69,7 @@ func (m *Manager) Recover(ctx context.Context, id string) (client.Artifact, erro
 	if err := m.drv.CloneFile(disk, lostCopy); err != nil {
 		return client.Artifact{}, err
 	}
-	if err := m.coldBootWith(ctx, rb, base.RootfsPath, d.DiskMB, []vmm.Disk{{Path: lostCopy, ReadOnly: true}}); err != nil {
+	if err := m.coldBootWith(ctx, rb, base.RootfsPath, d.DiskMB, []vmm.Disk{{Path: lostCopy}}); err != nil {
 		return client.Artifact{}, fmt.Errorf("rescue VM: %w", err)
 	}
 	gc := rb.guest()

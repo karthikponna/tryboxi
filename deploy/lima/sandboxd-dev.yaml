@@ -1,0 +1,38 @@
+# Lima VM for developing the Linux (Firecracker) backend on an M3+ Mac
+# (macOS 15+) using nested virtualization. Created by scripts/dev/lima-up.sh,
+# which replaces REPO_DIR with the absolute repo path.
+#
+# Safety: only the repo folder is mounted (writable); the default read-only
+# home mount is disabled. Daemon data lives on a dedicated XFS disk inside
+# the VM (reflinks), never in the repo.
+vmType: vz
+nestedVirtualization: true
+cpus: 6
+memory: "6GiB"
+disk: "40GiB"
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+mounts:
+  - location: "REPO_DIR"
+    mountPoint: "REPO_DIR"
+    writable: true
+additionalDisks:
+  - name: "sandboxd-data"
+    format: true
+    fsType: "xfs"
+portForwards:
+  # The Mac reaches the daemon through this socket; peer credentials don't
+  # survive the forward, so clients use the bearer token (sandboxd token).
+  - guestSocket: "/run/sandboxd/sandboxd.sock"
+    hostSocket: "{{.Dir}}/sock/sandboxd.sock"
+containerd:
+  system: false
+  user: false
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      test -e /dev/kvm
+      chmod 666 /dev/kvm || true

@@ -428,7 +428,16 @@ func (m *Manager) GC(ctx context.Context, dryRun bool) (client.GCResult, error) 
 		s := s
 		del(s.DirPath, "expired "+s.Kind+" snapshot", s.MemSizeBytes+s.DiskSizeBytes, func() { m.deleteSnapshot(ctx, s, "gc: expired") })
 	}
-	if total, err := m.st.R.SnapshotBytes(ctx); err == nil {
+	// Quota uses allocated blocks: disks are sparse clones, so their logical
+	// size overstates usage by an order of magnitude.
+	if all, err := m.st.R.ListSnapshots(ctx, db.ListSnapshotsParams{}); err == nil {
+		var total int64
+		used := map[string]int64{}
+		for _, s := range all {
+			u := s.MemSizeBytes + allocatedBytes(s.DiskPath)
+			used[s.ID] = u
+			total += u
+		}
 		quota := int64(m.cfg.Budgets.MaxSnapshotGB) << 30
 		if total > quota {
 			lru, _ := m.st.R.ListSnapshotsLRU(ctx)
@@ -440,8 +449,8 @@ func (m *Manager) GC(ctx context.Context, dryRun bool) (client.GCResult, error) 
 					continue
 				}
 				s := s
-				total -= s.MemSizeBytes + s.DiskSizeBytes
-				del(s.DirPath, "snapshot quota", s.MemSizeBytes+s.DiskSizeBytes, func() { m.deleteSnapshot(ctx, s, "gc: quota") })
+				total -= used[s.ID]
+				del(s.DirPath, "snapshot quota", used[s.ID], func() { m.deleteSnapshot(ctx, s, "gc: quota") })
 			}
 		}
 	}

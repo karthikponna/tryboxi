@@ -71,7 +71,13 @@ func SwitchRoot() error {
 	if err := os.MkdirAll("/newroot", 0o755); err != nil {
 		return err
 	}
-	if err := unix.Mount(dev, "/newroot", fstype, 0, ""); err != nil {
+	// commit=1 bounds what a VM crash can lose to about a second of writes,
+	// which is what host-side recovery can then extract.
+	data := ""
+	if fstype == "ext4" {
+		data = "commit=1"
+	}
+	if err := unix.Mount(dev, "/newroot", fstype, 0, data); err != nil {
 		return fmt.Errorf("mount %s: %w", dev, err)
 	}
 	if err := copyFile("/init", "/newroot"+AgentPath, 0o755); err != nil {

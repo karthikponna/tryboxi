@@ -269,16 +269,16 @@ type TemplateRequest struct {
 
 // Health is GET /v1/health.
 type Health struct {
-	Status          string `json:"status"`
-	Version         string `json:"version"`
-	Backend         string `json:"backend"`
-	VMMVersion      string `json:"vmm_version"`
-	AgentVersion    string `json:"agent_version"`
-	KernelVersion   string `json:"kernel_version"`
-	MinClient       string `json:"min_client_version"`
-	BaseTemplate    string `json:"base_template_status"`
-	UptimeS         int64  `json:"uptime_s"`
-	DataRoot        string `json:"data_root"`
+	Status        string `json:"status"`
+	Version       string `json:"version"`
+	Backend       string `json:"backend"`
+	VMMVersion    string `json:"vmm_version"`
+	AgentVersion  string `json:"agent_version"`
+	KernelVersion string `json:"kernel_version"`
+	MinClient     string `json:"min_client_version"`
+	BaseTemplate  string `json:"base_template_status"`
+	UptimeS       int64  `json:"uptime_s"`
+	DataRoot      string `json:"data_root"`
 }
 
 // Capacity is GET /v1/capacity.
