@@ -1,0 +1,211 @@
+syntax = "proto3";
+
+package guest.v1;
+
+option go_package = "github.com/karthikponna/tryboxi/gen/guest/v1;guestv1";
+
+// Guest is served by sandbox-agent on vsock port 52 inside every microVM.
+// The host always initiates connections.
+service Guest {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Version(VersionRequest) returns (VersionResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (stream Beat);
+
+  rpc Exec(ExecRequest) returns (stream ExecFrame);
+  // Attach re-streams frames of an existing execution starting after
+  // after_seq, replaying anything still in the guest spool.
+  rpc Attach(AttachRequest) returns (stream ExecFrame);
+  rpc Ack(AckRequest) returns (AckResponse);
+  rpc Signal(SignalRequest) returns (SignalResponse);
+  rpc WriteStdin(WriteStdinRequest) returns (WriteStdinResponse);
+
+  rpc PutFiles(stream PutFilesChunk) returns (PutFilesResponse);
+  rpc GetFiles(GetFilesRequest) returns (stream DataChunk);
+  rpc Stat(StatRequest) returns (StatResponse);
+  rpc Diff(DiffRequest) returns (DiffResponse);
+
+  rpc SyncTime(SyncTimeRequest) returns (SyncTimeResponse);
+  rpc Reseed(ReseedRequest) returns (ReseedResponse);
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+}
+
+message PingRequest {}
+message PingResponse {
+  int64 uptime_ms = 1;
+  string boot_id = 2;
+}
+
+message VersionRequest {}
+message VersionResponse {
+  string agent_version = 1;
+  uint32 protocol_version = 2;
+  string kernel_release = 3;
+  string arch = 4;
+}
+
+message HeartbeatRequest {
+  uint32 interval_ms = 1;
+}
+message Beat {
+  uint64 seq = 1;
+  int64 uptime_ms = 2;
+  double load1 = 3;
+  uint64 mem_avail_kb = 4;
+  uint64 disk_free_kb = 5;
+  uint32 running_execs = 6;
+  uint32 oom_kills = 7;
+}
+
+message ExecRequest {
+  string exec_id = 1;
+  repeated string argv = 2;  // if empty, `command` runs under bash -lc
+  string command = 3;
+  string cwd = 4;
+  map<string, string> env = 5;
+  string user = 6;           // default "agent"
+  bool tty = 7;
+  uint32 timeout_s = 8;      // 0 = no guest-side timeout
+  bytes stdin = 9;           // written then closed unless keep_stdin_open
+  bool keep_stdin_open = 10;
+  uint32 tty_rows = 11;
+  uint32 tty_cols = 12;
+}
+
+enum Stream {
+  STREAM_UNSPECIFIED = 0;
+  STREAM_STDOUT = 1;
+  STREAM_STDERR = 2;
+}
+
+message ExecFrame {
+  string exec_id = 1;
+  uint64 seq = 2;
+  int64 ts_ms = 3;
+  oneof kind {
+    Output output = 4;
+    Exit exit = 5;
+    Started started = 6;
+  }
+}
+
+message Started {
+  int32 pid = 1;
+}
+
+message Output {
+  Stream stream = 1;
+  bytes data = 2;  // at most 32 KiB
+}
+
+message Exit {
+  int32 exit_code = 1;
+  int32 signal = 2;
+  bool oom_killed = 3;
+  bool timed_out = 4;
+  int64 duration_ms = 5;
+  int64 user_cpu_ms = 6;
+  int64 sys_cpu_ms = 7;
+  int64 max_rss_kb = 8;
+  string error = 9;  // set when the process could not start
+}
+
+message AttachRequest {
+  string exec_id = 1;
+  uint64 after_seq = 2;
+}
+
+message AckRequest {
+  string exec_id = 1;
+  uint64 seq = 2;
+}
+message AckResponse {}
+
+message SignalRequest {
+  string exec_id = 1;
+  int32 signal = 2;
+  bool process_group = 3;
+}
+message SignalResponse {}
+
+message WriteStdinRequest {
+  string exec_id = 1;
+  bytes data = 2;
+  bool close = 3;
+}
+message WriteStdinResponse {}
+
+// PutFilesChunk streams a tar archive into dest_dir. The first chunk carries
+// the header fields; later chunks carry only data.
+message PutFilesChunk {
+  string dest_dir = 1;
+  repeated string delete = 2;  // relative paths removed before extraction
+  string owner = 3;            // e.g. "agent"
+  bytes data = 4;
+}
+message PutFilesResponse {
+  uint32 files_written = 1;
+  uint32 files_deleted = 2;
+  uint64 bytes_written = 3;
+}
+
+message GetFilesRequest {
+  string path = 1;              // file or directory
+  repeated string exclude = 2;  // glob patterns relative to path
+  uint64 max_bytes = 3;
+}
+message DataChunk {
+  bytes data = 1;
+}
+
+message StatRequest {
+  string path = 1;
+}
+message StatResponse {
+  bool exists = 1;
+  bool is_dir = 2;
+  uint64 size = 3;
+  uint32 mode = 4;
+  int64 mtime_ms = 5;
+}
+
+message DiffRequest {
+  string dir = 1;  // git work tree, default /workspace
+}
+message DiffResponse {
+  bytes patch = 1;                 // git diff --binary HEAD
+  repeated string untracked = 2;   // untracked, non-ignored files
+  repeated string changed = 3;     // all paths changed vs HEAD (incl. untracked)
+  string head = 4;
+}
+
+message SyncTimeRequest {
+  int64 unix_ns = 1;
+}
+message SyncTimeResponse {
+  int64 skew_ms = 1;
+}
+
+message ReseedRequest {
+  bytes entropy = 1;  // at least 64 bytes from the host CSPRNG
+}
+message ReseedResponse {}
+
+message ConfigureRequest {
+  string hostname = 1;
+  string sandbox_id = 2;
+  // Network: empty ip disables configuration.
+  string ip_cidr = 3;
+  string gateway = 4;
+  repeated string dns = 5;
+  uint32 mtu = 6;
+  bool grow_rootfs = 7;
+  uint32 deadman_s = 8;
+  map<string, string> env = 9;  // default env for every exec
+}
+message ConfigureResponse {}
+
+message ShutdownRequest {
+  bool reboot = 1;
+}
+message ShutdownResponse {}

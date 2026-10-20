@@ -1,0 +1,8 @@
+/_out/
+/bin/
+*.test
+*.ext4
+*.img
+*.cpio
+.DS_Store
+coverage.out
