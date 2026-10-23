@@ -171,6 +171,75 @@ SANDBOXD_URL=http://127.0.0.1:7070 SANDBOXD_TOKEN=$TOKEN python3 examples/python
 Requests with an `Origin` header or a non-localhost `Host` are rejected, so
 web pages can't drive the daemon.
 
+## 5b. Secrets and the git proxy (credentials never enter the VM)
+
+Sandboxes never receive real credentials. You store a secret on the host and
+bind it to a sandbox; inside the VM the env var holds a random placeholder
+(`sbxph_...`). The egress proxy terminates TLS only for that secret's hosts
+(using a local CA the daemon installs into the VM), swaps the placeholder for
+the real value in request headers, and scrubs the value out of responses.
+Sending a placeholder to any other host is blocked and logged.
+
+```bash
+# API key that may only go to api.openai.com (value read from your env, never a CLI arg)
+sandboxctl secret set OPENAI_API_KEY --host api.openai.com --from-env OPENAI_API_KEY
+
+# Git token for the git proxy: fetch acme/app, push only to sbx/* branches
+sandboxctl secret set-git GITHUB --repo acme/app --push 'sbx/*' --from-env GH_TOKEN
+
+sandboxctl secret ls                                  # names, hosts, masked preview
+sandboxctl create -w ~/code/app --secret OPENAI_API_KEY --secret GITHUB
+sandboxctl exec $ID -- 'echo $OPENAI_API_KEY'         # sbxph_openai_api_key_...
+sandboxctl exec $ID -- 'git push origin HEAD:sbx/fix'  # allowed; HEAD:main is refused
+sandboxctl events --sandbox $ID                       # secret.used / secret.blocked audit
+```
+
+For MCP, bind secrets in the server config (the model can't choose them):
+add `"SANDBOX_SECRETS": "OPENAI_API_KEY,GITHUB"` to the `env` block of the
+`sandbox` server in `.cursor/mcp.json` (or `--env` for `claude mcp add`).
+
+Guards: `exec` requests whose command, env, or stdin contain a stored secret
+value are rejected, and repo files containing one are not synced.
+
+## 5b-2. Network presets, setup phase, "ask to allow", auto-pull, Docker
+
+```bash
+# Presets: @node @python @go @rust @ubuntu @github @docker (on by default),
+# @browsers and @huggingface (added automatically when the repo uses them).
+sandboxctl create -w ~/code/app --allow @browsers --allow api.stripe.com
+
+# Setup phase: runs with open network, then the sandbox is locked down.
+sandboxctl create -w ~/code/app --setup "npm ci" --setup "npx playwright install chromium"
+
+# Live policy changes (what sandbox_network does after you approve it):
+sandboxctl net $ID                         # policy + recently blocked hosts
+sandboxctl net $ID --allow example.com     # takes effect immediately
+
+# Auto-pull: changed manifests/lockfiles go back to the host with a backup.
+sandboxctl create -w ~/code/app --auto-pull default
+sandboxctl exec $ID -- npm install left-pad   # host package.json + lock updated
+
+# Docker inside the sandbox (dockerd starts on first use):
+sandboxctl exec $ID -- 'docker run --rm hello-world && docker compose version'
+```
+
+MCP equivalents (set once by you, not by the model):
+`sandboxctl mcp install cursor --project <repo> --auto-pull --setup "npm ci" --secrets OPENAI_API_KEY`.
+
+## 5c. Network limits, logs, traces, dashboards
+
+- Every allowed outbound connection is an event (`net.allowed` with host,
+  bytes, duration); denials are `net.denied`, limit hits `net.ratelimited`.
+  Tune in `config.yaml` under `network:` (`max_conns`, `conns_per_minute`,
+  `egress_mbps`, `log_allowed`).
+- `sandboxctl trace <sbx_id|exe_id>` prints a per-phase waterfall
+  (scheduler.reserve, vm.restore, guest.configure, workspace.sync, exec, ...).
+  Set `telemetry.otlp_endpoint: http://127.0.0.1:4318` to also export spans to
+  Jaeger / Grafana Tempo / any OpenTelemetry collector.
+- Metrics are at `/metrics`. For Prometheus, enable `tcp_listen` and scrape
+  with `authorization: {credentials: <sandboxd token>}`; import
+  `deploy/grafana/sandboxd-dashboard.json` into Grafana.
+
 ## 6. Automated tests
 
 ```bash
@@ -213,5 +282,6 @@ $C gc --dry-run
   golden snapshots are rebuilt automatically (~2 s).
 - `capacity_exhausted`: the default budget is half your RAM (8 GB on a 16 GB
   Mac, i.e. four 2 GB sandboxes). Tune `budgets.max_mem_mb` in config.yaml.
-- Memory pressure "warn" pauses warm-pool refills; close heavy apps (Docker
-  Desktop reserves several GB) for the fastest creates.
+- Memory pressure "warn" pauses warm-pool refills and slows snapshot restores
+  (~0.9 s instead of ~0.5 s); close heavy apps (Docker Desktop reserves
+  several GB) for the fastest creates.

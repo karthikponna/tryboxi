@@ -81,6 +81,7 @@ These rules are enforced in code:
 - Every delete inside the daemon goes through `safefs.RemoveUnder(root, path)`, which resolves symlinks and refuses anything outside the daemon's data root.
 - No host folder is ever shared into a VM (no virtio-fs). Files move only by explicit copy over vsock.
 - Secrets are not synced by default (`.env*`, `*.pem`, `*.key`, `id_*`, `.npmrc`, `.aws`, `.ssh`, ...), and the copied `.git/config` has credential helpers, auth headers, includes, and URL credentials stripped.
+- **Credentials never enter VMs.** Stored secrets reach a sandbox only as placeholders; the egress proxy swaps in the real value for the secret's hosts (TLS terminated with a local CA), scrubs echoed values from responses, and blocks placeholders sent anywhere else. A git proxy adds the git token only for allowed repos and refuses pushes outside allowed branches. Commands, env, stdin, and synced files that contain a stored secret value are rejected.
 - Egress is allowlist-only by default (package registries, GitHub, Ubuntu mirrors); host loopback, LAN, link-local/metadata, and CGNAT ranges are always blocked, and DNS answers pointing there are dropped.
 - `sandboxd uninstall` keeps all data unless `--purge` is passed and confirmed.
 - GC supports `--dry-run`, and every deletion is logged as an event.
@@ -108,10 +109,19 @@ daemon shutdown with transparent resume, checkpoint/fork/restore, lost-VM
 detection and rescue-VM recovery, egress policy (DNS + SNI/Host), port
 forwards, delta workspace sync, diff/apply/pull/undo, repo stack detection
 with background template builds, HTTP API + SSE + auth, Go SDK, CLI, MCP
-adapter, agent rules and `mcp install`, Prometheus metrics, events, GC.
+adapter, agent rules and `mcp install`, Prometheus metrics, events, GC,
+host-side secrets with placeholder injection and response scrubbing, git
+proxy (repo + push-branch rules), per-sandbox egress limits and
+allowed-connection logs, OpenTelemetry tracing (`sandboxctl trace`, OTLP
+export) and a Grafana dashboard (`deploy/observability`: Prometheus + Grafana
++ Jaeger), network presets (`@node`, `@docker`, `@browsers`, ...), a setup
+phase with open network followed by lockdown, live "allow this host"
+changes (`sandbox_network` MCP tool, `sandboxctl net`), blocked hosts reported
+in exec results, auto-pull of manifests/lockfiles, and Docker inside sandboxes.
 
 Not done yet / known gaps:
 
+- Windows hosts have no backend (would need Hyper-V / WSL2).
 - Linux backend not exercised on real KVM yet (`scripts/dev/lima-up.sh` +
   `lima-provision.sh` set it up); Firecracker runs without the jailer, so
   cgroup/seccomp confinement and daemon-restart reattach are still to do.

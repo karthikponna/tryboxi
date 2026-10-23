@@ -20,7 +20,10 @@ import (
 	"github.com/karthikponna/tryboxi/internal/output"
 	"github.com/karthikponna/tryboxi/internal/store"
 	"github.com/karthikponna/tryboxi/internal/store/db"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 	"github.com/karthikponna/tryboxi/pkg/client"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // runExec tracks a live execution on the host.
@@ -33,6 +36,7 @@ type runExec struct {
 	startMs    int64
 	timeout    time.Duration
 	done       chan struct{}
+	span       trace.Span
 
 	mu         sync.Mutex
 	guestStart int64 // guest clock at process start (ms)
@@ -62,6 +66,13 @@ func (b *Box) failRunning(reason string) {
 func (m *Manager) Exec(ctx context.Context, sandboxID string, req client.ExecRequest, idemKey string) (client.Execution, error) {
 	if req.Cmd == "" && len(req.Argv) == 0 {
 		return client.Execution{}, errInvalid("cmd or argv is required")
+	}
+	parts := append([]string{req.Cmd, req.Stdin}, req.Argv...)
+	for k, v := range req.Env {
+		parts = append(parts, k+"="+v)
+	}
+	if err := m.checkLeak(parts...); err != nil {
+		return client.Execution{}, err
 	}
 	b, err := m.box(sandboxID)
 	if err != nil {
@@ -164,7 +175,9 @@ func (m *Manager) startExec(ctx context.Context, b *Box, req client.ExecRequest,
 		}
 		return nil, err
 	}
-	re := &runExec{id: id, box: b, log: lg, dir: dir, background: req.Background, startMs: now.UnixMilli(),
+	_, span := telemetry.Start(ctx, "exec", telemetry.Sandbox(b.id), telemetry.Exec(id),
+		attribute.String("cmd", truncateStr(cmd, 200)), attribute.Bool("background", req.Background))
+	re := &runExec{id: id, box: b, log: lg, dir: dir, background: req.Background, startMs: now.UnixMilli(), span: span,
 		timeout: time.Duration(timeout) * time.Second, done: make(chan struct{}), lastOutput: now, status: "running"}
 	b.mu.Lock()
 	b.running[id] = re
@@ -413,6 +426,22 @@ func (re *runExec) finish(ctx context.Context, exit *guestv1.Exit, status, reaso
 		cj, _ := json.Marshal(re.changed)
 		_ = m.st.W.SetExecutionChangedFiles(context.Background(), db.SetExecutionChangedFilesParams{ChangedFiles: string(cj), ID: re.id})
 	}
+	// Hosts the command was blocked from, and approved auto-pulls, are part
+	// of the result so the agent can react (ask for access, see the host
+	// lockfile was updated).
+	denied := b.deniedSince(time.UnixMilli(re.startMs))
+	var auto *client.ApplyResult
+	if exit != nil && b.row.WorkspaceMode == "host" && len(re.changed) > 0 {
+		auto = m.autoPull(context.Background(), b, re.changed)
+	}
+	if len(denied) > 0 || auto != nil {
+		dj, _ := json.Marshal(denied)
+		aj := []byte("{}")
+		if auto != nil {
+			aj, _ = json.Marshal(auto)
+		}
+		_ = m.st.W.SetExecutionExtras(context.Background(), db.SetExecutionExtrasParams{NetworkDenied: string(dj), AutoPulled: string(aj), ID: re.id})
+	}
 	_ = m.st.W.FinishExecution(context.Background(), p)
 	if re.log != nil {
 		_ = re.log.Close()
@@ -442,6 +471,17 @@ func (re *runExec) finish(ctx context.Context, exit *guestv1.Exit, status, reaso
 		data["reason"] = reason
 	}
 	m.bus.Emit(b.id, re.id, "exec.finished", data)
+	if re.span != nil {
+		re.span.SetAttributes(attribute.String("status", status))
+		if exit != nil {
+			re.span.SetAttributes(attribute.Int("exit_code", int(exit.ExitCode)))
+		}
+		var serr error
+		if status == "lost" || status == "timed_out" {
+			serr = errors.New(status + ": " + reason)
+		}
+		telemetry.End(re.span, serr)
+	}
 	close(re.done)
 }
 
@@ -506,6 +546,13 @@ func rowExec(e db.Execution) client.Execution {
 		v.FinishedAt = e.FinishedAt.Int64
 	}
 	_ = json.Unmarshal([]byte(e.ChangedFiles), &v.ChangedFiles)
+	_ = json.Unmarshal([]byte(e.NetworkDenied), &v.NetworkDenied)
+	if e.AutoPulled != "" && e.AutoPulled != "{}" {
+		var ar client.ApplyResult
+		if json.Unmarshal([]byte(e.AutoPulled), &ar) == nil {
+			v.AutoPulled = &ar
+		}
+	}
 	return v
 }
 

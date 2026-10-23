@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -31,8 +30,8 @@ import (
 	"gvisor.dev/gvisor/pkg/waiter"
 
 	sbxdns "github.com/karthikponna/tryboxi/internal/network/dns"
+	"github.com/karthikponna/tryboxi/internal/network/egress"
 	"github.com/karthikponna/tryboxi/internal/network/policy"
-	"github.com/karthikponna/tryboxi/internal/network/sniff"
 )
 
 // Fixed addressing: identical in every VM, because snapshots bake the guest
@@ -47,24 +46,31 @@ const (
 	MTU        = 1500
 )
 
-// Event describes a policy decision worth recording.
-type Event struct {
-	Type   string // net.denied | net.allowed
-	Host   string
-	Dest   string
-	Reason string
+// Event is a policy decision or audit record (shared with Linux).
+type Event = egress.Event
+
+// Options configure a Network.
+type Options struct {
+	Policy     *policy.Policy
+	OnEvent    func(Event)
+	Log        *slog.Logger
+	CA         *egress.CA
+	Limits     egress.Limits
+	LogAllowed bool
 }
 
 // Network is one VM's virtual network.
 type Network struct {
-	pol   atomic.Pointer[policy.Policy]
-	dns   *sbxdns.Handler
-	stack *stack.Stack
-	sw    *tap.Switch
-	host  *os.File // our end of the socketpair
-	guest *os.File // VM end, handed to Virtualization.framework
-	onEv  func(Event)
-	log   *slog.Logger
+	pol      atomic.Pointer[policy.Policy]
+	bindings atomic.Pointer[[]egress.Binding]
+	dns      *sbxdns.Handler
+	proxy    *egress.Proxy
+	stack    *stack.Stack
+	sw       *tap.Switch
+	host     *os.File // our end of the socketpair
+	guest    *os.File // VM end, handed to Virtualization.framework
+	onEv     func(Event)
+	log      *slog.Logger
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -75,7 +81,8 @@ type Network struct {
 }
 
 // New creates the network and returns it; GuestFile must be given to the VM.
-func New(p *policy.Policy, onEvent func(Event), log *slog.Logger) (*Network, error) {
+func New(o Options) (*Network, error) {
+	p, onEvent, log := o.Policy, o.OnEvent, o.Log
 	if log == nil {
 		log = slog.Default()
 	}
@@ -95,9 +102,21 @@ func New(p *policy.Policy, onEvent func(Event), log *slog.Logger) (*Network, err
 		forwards: map[uint16]net.Listener{},
 	}
 	n.pol.Store(p)
+	n.bindings.Store(&[]egress.Binding{})
 	n.dns = sbxdns.New(p, func(name, reason string) {
 		n.emit(Event{Type: "net.denied", Host: name, Reason: "dns: " + reason})
 	})
+	n.proxy = &egress.Proxy{
+		Policy:     func() *policy.Policy { return n.pol.Load() },
+		DNS:        n.dns,
+		Emit:       n.emit,
+		Bindings:   func() []egress.Binding { return *n.bindings.Load() },
+		CA:         o.CA,
+		LogAllowed: o.LogAllowed,
+		Dialer:     net.Dialer{Timeout: 15 * time.Second},
+	}
+	n.proxy.SetLimits(o.Limits)
+	n.dns.Extra = n.proxy.SecretHost
 	n.ctx, n.cancel = context.WithCancel(context.Background())
 
 	ep, err := tap.NewLinkEndpoint(false, MTU, GatewayMAC, GatewayIP, nil)
@@ -165,6 +184,12 @@ func New(p *policy.Policy, onEvent func(Event), log *slog.Logger) (*Network, err
 func (n *Network) SetPolicy(p *policy.Policy) {
 	n.pol.Store(p)
 	n.dns.SetPolicy(p)
+}
+
+// SetSecrets swaps the secrets this sandbox may use (by placeholder).
+func (n *Network) SetSecrets(b []egress.Binding) {
+	cp := append([]egress.Binding(nil), b...)
+	n.bindings.Store(&cp)
 }
 
 // GuestFile is the socket the VM's NIC attaches to.
@@ -237,107 +262,30 @@ func (n *Network) handleTCP(r *tcp.ForwarderRequest) {
 	id := r.ID()
 	dst, _ := netip.AddrFromSlice(id.LocalAddress.AsSlice())
 	port := id.LocalPort
-	destStr := net.JoinHostPort(dst.String(), strconv.Itoa(int(port)))
-
 	pol := n.pol.Load()
+	// Refuse cheaply (RST) what can never be allowed; everything else is
+	// accepted and decided by the shared egress proxy.
 	if dst.String() == GatewayIP || pol.Mode == policy.ModeNone {
 		r.Complete(true)
 		return
 	}
-	if policy.Blocked(dst) {
-		n.emit(Event{Type: "net.denied", Dest: destStr, Reason: "blocked address range"})
+	if policy.Blocked(dst) || (!pol.AllowIP(dst, port) && !pol.HostPort(port)) {
+		reason := "port not allowed for hostname rules"
+		if policy.Blocked(dst) {
+			reason = "blocked address range"
+		}
+		n.emit(Event{Type: "net.denied", Dest: net.JoinHostPort(dst.String(), strconv.Itoa(int(port))), Reason: reason})
 		r.Complete(true)
 		return
 	}
-
-	// Raw-IP rules (full mode, or CIDR allow entries) dial immediately.
-	if pol.AllowIP(dst, port) {
-		up, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(n.ctx, "tcp", destStr)
-		if err != nil {
-			r.Complete(true)
-			return
-		}
-		guest, err := n.accept(r)
-		if err != nil {
-			up.Close()
-			return
-		}
-		splice(guest, up)
-		return
-	}
-
-	// Allowlist mode: only hostname-identified HTTP(S) can pass.
-	if !pol.HostPort(port) {
-		n.emit(Event{Type: "net.denied", Dest: destStr, Reason: "port not allowed for hostname rules"})
-		r.Complete(true)
-		return
-	}
-	guest, err := n.accept(r)
-	if err != nil {
-		return
-	}
-	res, _ := sniff.Peek(guest, 5*time.Second)
-	if res.Host == "" {
-		n.emit(Event{Type: "net.denied", Dest: destStr, Reason: "no TLS SNI or HTTP Host to match against the allowlist"})
-		guest.Close()
-		return
-	}
-	if !pol.AllowHostPort(res.Host, port) {
-		n.emit(Event{Type: "net.denied", Host: res.Host, Dest: destStr, Reason: "host not in allowlist"})
-		guest.Close()
-		return
-	}
-	ctx, cancel := context.WithTimeout(n.ctx, 15*time.Second)
-	defer cancel()
-	ip, err := n.dns.ResolveForDial(ctx, res.Host)
-	if err != nil {
-		n.emit(Event{Type: "net.denied", Host: res.Host, Dest: destStr, Reason: "resolve: " + err.Error()})
-		guest.Close()
-		return
-	}
-	up, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
-	if err != nil {
-		guest.Close()
-		return
-	}
-	if _, err := up.Write(res.Buffered); err != nil {
-		guest.Close()
-		up.Close()
-		return
-	}
-	splice(guest, up)
-}
-
-func (n *Network) accept(r *tcp.ForwarderRequest) (net.Conn, error) {
 	var wq waiter.Queue
 	ep, terr := r.CreateEndpoint(&wq)
 	if terr != nil {
 		r.Complete(true)
-		return nil, errors.New(terr.String())
+		return
 	}
 	r.Complete(false)
-	return gonet.NewTCPConn(&wq, ep), nil
-}
-
-type closeWriter interface{ CloseWrite() error }
-
-func splice(a, b net.Conn) {
-	var wg sync.WaitGroup
-	cp := func(dst, src net.Conn) {
-		defer wg.Done()
-		_, _ = io.Copy(dst, src)
-		if cw, ok := dst.(closeWriter); ok {
-			_ = cw.CloseWrite()
-		} else {
-			_ = dst.Close()
-		}
-	}
-	wg.Add(2)
-	go cp(a, b)
-	go cp(b, a)
-	wg.Wait()
-	a.Close()
-	b.Close()
+	n.proxy.Handle(n.ctx, gonet.NewTCPConn(&wq, ep), dst, port)
 }
 
 // DialGuest opens a TCP connection from the host to the guest.
@@ -376,7 +324,7 @@ func (n *Network) Forward(guestPort uint16, hostPort int) (int, error) {
 					c.Close()
 					return
 				}
-				splice(c, g)
+				egress.Splice(c, g)
 			}(c)
 		}
 	}()

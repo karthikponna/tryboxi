@@ -94,6 +94,9 @@ type Options struct {
 	Excludes       []string // directory/file base names skipped anywhere
 	SecretExcludes []string // base-name globs never synced
 	MaxFileBytes   int64
+	// DenyContent: files containing any of these byte strings (stored
+	// secret values) are never synced.
+	DenyContent [][]byte
 }
 
 // Delta is the set of changes to push into the VM.
@@ -245,6 +248,10 @@ func Plan(ctx context.Context, root string, prev *Manifest, opt Options) (*Delta
 					continue
 				}
 				e.Sha = h
+				if containsAny(full, opt.DenyContent) {
+					d.Skipped = append(d.Skipped, rel+" (contains a stored secret value)")
+					continue
+				}
 			}
 		default:
 			continue
@@ -269,6 +276,22 @@ func Plan(ctx context.Context, root string, prev *Manifest, opt Options) (*Delta
 		}
 	}
 	return d, nil
+}
+
+func containsAny(path string, needles [][]byte) bool {
+	if len(needles) == 0 {
+		return false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, n := range needles {
+		if len(n) >= 8 && bytes.Contains(b, n) {
+			return true
+		}
+	}
+	return false
 }
 
 // WriteTar streams the files in d.Send from root, sanitizing .git/config.

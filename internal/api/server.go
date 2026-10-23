@@ -18,10 +18,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/karthikponna/tryboxi/internal/api/middleware"
 	"github.com/karthikponna/tryboxi/internal/api/sse"
 	"github.com/karthikponna/tryboxi/internal/service"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 	"github.com/karthikponna/tryboxi/internal/version"
 	"github.com/karthikponna/tryboxi/pkg/client"
 )
@@ -29,6 +31,7 @@ import (
 // Server serves the API.
 type Server struct {
 	svc     *service.Manager
+	traces  *telemetry.Recorder
 	log     *slog.Logger
 	mux     *http.ServeMux
 	metrics *metrics
@@ -39,16 +42,38 @@ type Server struct {
 }
 
 // New builds the handler tree.
-func New(svc *service.Manager, log *slog.Logger, openapi []byte) *Server {
-	s := &Server{svc: svc, log: log, mux: http.NewServeMux(), clients: map[string]service.Caller{}, spec: openapi}
+func New(svc *service.Manager, log *slog.Logger, openapi []byte, traces *telemetry.Recorder) *Server {
+	s := &Server{svc: svc, log: log, mux: http.NewServeMux(), clients: map[string]service.Caller{}, spec: openapi, traces: traces}
 	s.metrics = newMetrics(svc)
 	s.routes()
 	return s
 }
 
+// MetricsHandler serves only Prometheus metrics (no auth, read-only).
+func (s *Server) MetricsHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", promhttp.HandlerFor(s.metrics.reg, promhttp.HandlerOpts{}))
+	return mux
+}
+
 // Handler wraps the mux with auth and common middleware.
 func (s *Server) Handler(tok *middleware.Token) http.Handler {
-	return middleware.Common(s.log, version.Version, version.MinClient, middleware.Auth(tok, os.Getuid(), s.mux))
+	return middleware.Common(s.log, version.Version, version.MinClient, middleware.Auth(tok, os.Getuid(), http.HandlerFunc(s.routeAndName)))
+}
+
+// routeAndName dispatches to the mux, then names the request span after the
+// matched route (the pattern is only known once the mux has run).
+func (s *Server) routeAndName(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
+	span := trace.SpanFromContext(r.Context())
+	if r.Pattern != "" {
+		span.SetName("HTTP " + r.Pattern)
+	}
+	if v := r.PathValue("id"); strings.HasPrefix(v, "sbx_") {
+		span.SetAttributes(telemetry.Sandbox(v))
+	} else if strings.HasPrefix(v, "exe_") {
+		span.SetAttributes(telemetry.Exec(v))
+	}
 }
 
 // ConnContext attaches peer credentials for unix connections.
@@ -92,6 +117,8 @@ func (s *Server) routes() {
 	h("POST /v1/sandboxes/{id}/fork", s.fork)
 	h("POST /v1/sandboxes/{id}/restore", s.restore)
 	h("POST /v1/sandboxes/{id}/ports", s.ports)
+	h("GET /v1/sandboxes/{id}/network", s.getNetwork)
+	h("POST /v1/sandboxes/{id}/network", s.updateNetwork)
 	h("POST /v1/sandboxes/{id}/recover", s.recoverSandbox)
 
 	h("GET /v1/executions/{id}", s.getExecution)
@@ -106,6 +133,10 @@ func (s *Server) routes() {
 	h("GET /v1/artifacts/{id}/content", s.artifactContent)
 	h("POST /v1/artifacts/{id}/undo", s.undo)
 	h("GET /v1/events", s.events)
+	h("GET /v1/traces", s.listTraces)
+	h("GET /v1/secrets", s.listSecrets)
+	h("POST /v1/secrets", s.putSecret)
+	h("DELETE /v1/secrets/{name}", s.deleteSecret)
 	h("POST /v1/gc", s.gc)
 	s.mux.Handle("GET /metrics", promhttp.HandlerFor(s.metrics.reg, promhttp.HandlerOpts{}))
 }
@@ -479,6 +510,29 @@ func (s *Server) ports(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, res)
 }
 
+func (s *Server) getNetwork(w http.ResponseWriter, r *http.Request) {
+	info, err := s.svc.NetworkInfo(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, info)
+}
+
+func (s *Server) updateNetwork(w http.ResponseWriter, r *http.Request) {
+	var req client.NetworkUpdate
+	if err := decode(r, &req); err != nil {
+		s.fail(w, err)
+		return
+	}
+	info, err := s.svc.UpdateNetwork(r.Context(), r.PathValue("id"), req)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, info)
+}
+
 func (s *Server) recoverSandbox(w http.ResponseWriter, r *http.Request) {
 	art, err := s.svc.Recover(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -677,6 +731,43 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
+	var traces []telemetry.Trace
+	if s.traces != nil {
+		traces = s.traces.Traces(r.URL.Query().Get("sandbox_id"), r.URL.Query().Get("exec_id"), int(qint(r, "limit", 20)))
+	}
+	if traces == nil {
+		traces = []telemetry.Trace{}
+	}
+	writeJSON(w, 200, map[string]any{"traces": traces})
+}
+
+func (s *Server) listSecrets(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"secrets": s.svc.ListSecrets(r.Context())})
+}
+
+func (s *Server) putSecret(w http.ResponseWriter, r *http.Request) {
+	var req client.SecretRequest
+	if err := decode(r, &req); err != nil {
+		s.fail(w, err)
+		return
+	}
+	info, err := s.svc.PutSecret(r.Context(), req)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, 201, info)
+}
+
+func (s *Server) deleteSecret(w http.ResponseWriter, r *http.Request) {
+	if err := s.svc.DeleteSecret(r.Context(), r.PathValue("name")); err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"deleted": r.PathValue("name")})
+}
+
 func (s *Server) gc(w http.ResponseWriter, r *http.Request) {
 	var req client.GCRequest
 	if err := decode(r, &req); err != nil {
@@ -707,7 +798,7 @@ func newMetrics(svc *service.Manager) *metrics {
 			Buckets: []float64{.1, .25, .5, 1, 2, 5, 10, 30}}, []string{"source"}),
 		execs: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "sandboxd_executions_total", Help: "Executions by final status."}, []string{"status"}),
 	}
-	reg.MustRegister(m.create, m.execs)
+	reg.MustRegister(m.create, m.execs, telemetry.SpanSeconds, telemetry.NetEvents, telemetry.NetBytes)
 	gauge := func(name, help string, f func() float64) {
 		reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: name, Help: help}, f))
 	}

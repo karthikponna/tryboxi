@@ -1,6 +1,9 @@
 package client
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // WorkspaceSpec links a sandbox to a host repo.
 type WorkspaceSpec struct {
@@ -8,29 +11,75 @@ type WorkspaceSpec struct {
 	// Mode: "host" (host repo is the source of truth, auto-sync before every
 	// exec), "sandbox" (VM is the source of truth; use diff/apply), "none".
 	Mode string `json:"mode,omitempty"`
+	// AutoPull lists files that are copied back to the host automatically
+	// (with a backup) when a command changes them, e.g. lockfiles. Globs on
+	// the path or base name; "default" means common manifests and lockfiles.
+	AutoPull []string `json:"auto_pull,omitempty"`
 }
 
 // NetworkSpec sets egress rules.
 type NetworkSpec struct {
-	Mode  string   `json:"mode,omitempty"` // none | allowlist | full
-	Allow []string `json:"allow,omitempty"`
+	Mode  string   `json:"mode,omitempty"`  // none | allowlist | full
+	Allow []string `json:"allow,omitempty"` // hosts, *.wildcards, CIDRs, or @presets (@node, @python, @docker, @browsers, ...)
 	Deny  []string `json:"deny,omitempty"`
 	Ports []uint16 `json:"ports,omitempty"`
+	// SetupMode is the network mode while Setup commands run (default
+	// "full"); afterwards the sandbox is locked to Mode.
+	SetupMode string `json:"setup_mode,omitempty"`
+}
+
+// NetworkUpdate changes a running sandbox's egress policy.
+type NetworkUpdate struct {
+	Mode   string   `json:"mode,omitempty"`
+	Allow  []string `json:"allow,omitempty"`
+	Deny   []string `json:"deny,omitempty"`
+	Remove []string `json:"remove,omitempty"` // remove entries from allow
+	Reason string   `json:"reason,omitempty"`
+}
+
+// DeniedConn is a blocked outbound attempt.
+type DeniedConn struct {
+	Host   string `json:"host"`
+	Reason string `json:"reason"`
+	At     int64  `json:"at"`
+}
+
+// NetworkInfo is a sandbox's current egress policy.
+type NetworkInfo struct {
+	Mode         string       `json:"mode"`
+	Allow        []string     `json:"allow"`
+	Deny         []string     `json:"deny,omitempty"`
+	Ports        []uint16     `json:"ports,omitempty"`
+	RecentDenied []DeniedConn `json:"recent_denied"`
+}
+
+// SetupStep is the result of one setup command.
+type SetupStep struct {
+	Cmd      string `json:"cmd"`
+	ExecID   string `json:"exec_id"`
+	Status   string `json:"status"`
+	ExitCode *int   `json:"exit_code"`
 }
 
 // CreateSandboxRequest is the body of POST /v1/sandboxes.
 type CreateSandboxRequest struct {
-	Template         string            `json:"template,omitempty"` // "base" (default) | "auto" | template name/id
-	VCPU             int               `json:"vcpu,omitempty"`
-	MemMB            int               `json:"mem_mb,omitempty"`
-	DiskMB           int               `json:"disk_mb,omitempty"`
-	Workspace        *WorkspaceSpec    `json:"workspace,omitempty"`
-	Network          *NetworkSpec      `json:"network,omitempty"`
-	IdleTimeoutS     int               `json:"idle_timeout_s,omitempty"`
-	MaxLifetimeS     int               `json:"max_lifetime_s,omitempty"`
-	SessionKey       string            `json:"session_key,omitempty"`
-	WaitForCapacityS int               `json:"wait_for_capacity_s,omitempty"`
-	Metadata         map[string]string `json:"metadata,omitempty"`
+	Template         string         `json:"template,omitempty"` // "base" (default) | "auto" | template name/id
+	VCPU             int            `json:"vcpu,omitempty"`
+	MemMB            int            `json:"mem_mb,omitempty"`
+	DiskMB           int            `json:"disk_mb,omitempty"`
+	Workspace        *WorkspaceSpec `json:"workspace,omitempty"`
+	Network          *NetworkSpec   `json:"network,omitempty"`
+	IdleTimeoutS     int            `json:"idle_timeout_s,omitempty"`
+	MaxLifetimeS     int            `json:"max_lifetime_s,omitempty"`
+	SessionKey       string         `json:"session_key,omitempty"`
+	WaitForCapacityS int            `json:"wait_for_capacity_s,omitempty"`
+	// Secrets lists stored secret names to bind. The VM only sees a
+	// placeholder; the egress proxy swaps in the real value for allowed hosts.
+	Secrets  []string          `json:"secrets,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	// Setup commands run once after boot with Network.SetupMode (default
+	// full internet), then the sandbox is locked to its normal policy.
+	Setup []string `json:"setup,omitempty"`
 }
 
 // Sandbox is the public view of a sandbox.
@@ -57,8 +106,11 @@ type Sandbox struct {
 	LastActiveAt  int64             `json:"last_active_at"`
 	ExpiresAt     int64             `json:"expires_at"`
 	Metadata      map[string]string `json:"metadata,omitempty"`
-	Reused        bool              `json:"reused,omitempty"` // returned an existing session sandbox
+	Secrets       []string          `json:"secrets,omitempty"` // bound secret names (never values)
+	Reused        bool              `json:"reused,omitempty"`  // returned an existing session sandbox
 	Notice        string            `json:"notice,omitempty"`
+	AutoPull      []string          `json:"auto_pull,omitempty"`
+	Setup         []SetupStep       `json:"setup,omitempty"`
 }
 
 // ExecRequest is the body of POST /v1/sandboxes/{id}/exec.
@@ -111,6 +163,11 @@ type Execution struct {
 	FinishedAt      int64             `json:"finished_at,omitempty"`
 	LogURLs         map[string]string `json:"log_urls,omitempty"`
 	Sync            *SyncResult       `json:"sync,omitempty"`
+	// NetworkDenied lists hosts the command tried to reach that the
+	// sandbox's policy blocked.
+	NetworkDenied []string `json:"network_denied,omitempty"`
+	// AutoPulled reports files copied back to the host automatically.
+	AutoPulled *ApplyResult `json:"auto_pulled,omitempty"`
 }
 
 // OutputChunk is a page of raw output.
@@ -265,6 +322,50 @@ type TemplateRequest struct {
 	Install    []string `json:"install,omitempty"`
 	ReadyCheck string   `json:"ready_check,omitempty"`
 	Wait       bool     `json:"wait,omitempty"`
+}
+
+// Span is one traced phase.
+type Span struct {
+	TraceID  string            `json:"trace_id"`
+	SpanID   string            `json:"span_id"`
+	ParentID string            `json:"parent_id,omitempty"`
+	Name     string            `json:"name"`
+	Start    time.Time         `json:"start"`
+	DurMs    float64           `json:"dur_ms"`
+	Status   string            `json:"status"`
+	Error    string            `json:"error,omitempty"`
+	Attrs    map[string]string `json:"attrs,omitempty"`
+}
+
+// Trace groups the spans of one request.
+type Trace struct {
+	TraceID string    `json:"trace_id"`
+	Root    string    `json:"root"`
+	Start   time.Time `json:"start"`
+	DurMs   float64   `json:"dur_ms"`
+	Spans   []Span    `json:"spans"`
+}
+
+// SecretRequest stores a host-side secret (POST /v1/secrets).
+type SecretRequest struct {
+	Name         string   `json:"name"`
+	Kind         string   `json:"kind,omitempty"` // env (default) | git
+	Value        string   `json:"value"`
+	Hosts        []string `json:"hosts,omitempty"`
+	Repos        []string `json:"repos,omitempty"`         // git: owner/repo globs
+	PushBranches []string `json:"push_branches,omitempty"` // git: branch globs (empty = read-only)
+}
+
+// SecretInfo describes a stored secret without its value.
+type SecretInfo struct {
+	Name         string   `json:"name"`
+	Kind         string   `json:"kind"`
+	Hosts        []string `json:"hosts"`
+	Repos        []string `json:"repos,omitempty"`
+	PushBranches []string `json:"push_branches,omitempty"`
+	Preview      string   `json:"preview"`
+	CreatedAt    int64    `json:"created_at"`
+	UpdatedAt    int64    `json:"updated_at"`
 }
 
 // Health is GET /v1/health.

@@ -163,24 +163,39 @@ func withNS(name string, fn func() error) error {
 	return fn()
 }
 
+// Options configure a Network.
+type Options struct {
+	Policy     *policy.Policy
+	OnEvent    func(egress.Event)
+	Log        *slog.Logger
+	CA         *egress.CA
+	Limits     egress.Limits
+	LogAllowed bool
+}
+
 // Network is one VM's namespace plus the daemon listeners inside it.
 type Network struct {
-	name  string
-	pol   atomic.Pointer[policy.Policy]
-	dns   *sbxdns.Handler
-	proxy *egress.Proxy
-	tcp   net.Listener
-	udp   net.PacketConn
-	ctx   context.Context
-	stop  context.CancelFunc
-	log   *slog.Logger
+	name     string
+	pol      atomic.Pointer[policy.Policy]
+	bindings atomic.Pointer[[]egress.Binding]
+	dns      *sbxdns.Handler
+	proxy    *egress.Proxy
+	tcp      net.Listener
+	udp      net.PacketConn
+	ctx      context.Context
+	stop     context.CancelFunc
+	log      *slog.Logger
 
 	mu       sync.Mutex
 	forwards map[uint16]net.Listener
 }
 
 // New prepares a namespace (from pool when given) and starts listeners.
-func New(pool *Pool, p *policy.Policy, onEvent func(egress.Event), log *slog.Logger) (*Network, error) {
+func New(pool *Pool, o Options) (*Network, error) {
+	p, onEvent, log := o.Policy, o.OnEvent, o.Log
+	if onEvent == nil {
+		onEvent = func(egress.Event) {}
+	}
 	var name string
 	var err error
 	if pool != nil {
@@ -277,6 +292,12 @@ func (n *Network) serveDNS() {
 
 // Name is the namespace name (Firecracker runs inside it).
 func (n *Network) Name() string { return n.name }
+
+// SetSecrets swaps the secrets this sandbox may use.
+func (n *Network) SetSecrets(b []egress.Binding) {
+	cp := append([]egress.Binding(nil), b...)
+	n.bindings.Store(&cp)
+}
 
 // SetPolicy swaps the egress policy.
 func (n *Network) SetPolicy(p *policy.Policy) {

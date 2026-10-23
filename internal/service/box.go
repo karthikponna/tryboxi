@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,6 +60,7 @@ type Box struct {
 	bootedFrom string
 	bootMs     int64
 	ports      map[uint16]int // guest port -> host port (re-established on resume)
+	denials    []denial
 	hbCancel   context.CancelFunc
 	warned     bool
 	gone       chan struct{} // closed when the VM process is gone
@@ -196,10 +199,15 @@ func (b *Box) view() client.Sandbox {
 	if json.Unmarshal([]byte(r.Metadata), &meta) == nil && len(meta) > 0 {
 		s.Metadata = map[string]string{}
 		for k, v := range meta {
-			if _, isPort := cutPrefix(k, "port:"); !isPort {
+			if name, isSecret := cutPrefix(k, secretMetaPrefx); isSecret {
+				s.Secrets = append(s.Secrets, name)
+			} else if k == autoPullMeta {
+				s.AutoPull = strings.Split(v, ",")
+			} else if _, isPort := cutPrefix(k, "port:"); !isPort {
 				s.Metadata[k] = v
 			}
 		}
+		sort.Strings(s.Secrets)
 		if len(s.Metadata) == 0 {
 			s.Metadata = nil
 		}

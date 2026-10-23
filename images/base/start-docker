@@ -1,0 +1,21 @@
+#!/bin/sh
+# Starts dockerd in the background (idempotent) and waits until it answers.
+set -e
+if /usr/bin/docker version >/dev/null 2>&1; then
+  exit 0
+fi
+if ! pgrep -x dockerd >/dev/null 2>&1; then
+  mkdir -p /var/log
+  nohup /usr/bin/dockerd --group docker >/var/log/dockerd.log 2>&1 &
+fi
+i=0
+while [ $i -lt 60 ]; do
+  if [ -S /var/run/docker.sock ] && /usr/bin/docker version >/dev/null 2>&1; then
+    exit 0
+  fi
+  i=$((i + 1))
+  sleep 0.25
+done
+echo "dockerd did not start; see /var/log/dockerd.log" >&2
+tail -5 /var/log/dockerd.log >&2
+exit 1

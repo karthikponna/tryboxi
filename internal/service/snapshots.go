@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -17,13 +18,17 @@ import (
 	"github.com/karthikponna/tryboxi/internal/scheduler"
 	"github.com/karthikponna/tryboxi/internal/store"
 	"github.com/karthikponna/tryboxi/internal/store/db"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 	"github.com/karthikponna/tryboxi/internal/workspace"
 	"github.com/karthikponna/tryboxi/pkg/client"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // takeSnapshot flushes the guest, pauses the VM, and writes a snapshot.
 // The VM is left paused; the caller resumes or kills it.
 func (m *Manager) takeSnapshot(ctx context.Context, b *Box, kind, label, templateID string) (db.Snapshot, error) {
+	ctx, span := telemetry.Start(ctx, "snapshot.take", telemetry.Sandbox(b.id), attribute.String("snapshot.kind", kind))
+	defer span.End()
 	b.mu.Lock()
 	vm, gc := b.vm, b.gc
 	b.mu.Unlock()
@@ -93,7 +98,9 @@ func (m *Manager) pauseToDisk(ctx context.Context, b *Box, reason string) error 
 	return m.pauseToDiskLocked(ctx, b, reason)
 }
 
-func (m *Manager) pauseToDiskLocked(ctx context.Context, b *Box, reason string) error {
+func (m *Manager) pauseToDiskLocked(ctx context.Context, b *Box, reason string) (err error) {
+	ctx, span := telemetry.Start(ctx, "sandbox.pause", telemetry.Sandbox(b.id))
+	defer func() { telemetry.End(span, err) }()
 	if st := b.State(); st != StateReady && st != StateBusy {
 		return nil
 	}
@@ -126,7 +133,9 @@ func (m *Manager) pauseToDiskLocked(ctx context.Context, b *Box, reason string) 
 }
 
 // resumeFromDisk restores a paused sandbox (lc must be held).
-func (m *Manager) resumeFromDisk(ctx context.Context, b *Box) error {
+func (m *Manager) resumeFromDisk(ctx context.Context, b *Box) (err error) {
+	ctx, span := telemetry.Start(ctx, "sandbox.resume", telemetry.Sandbox(b.id))
+	defer func() { telemetry.End(span, err) }()
 	snaps, err := m.st.R.ListSnapshots(ctx, db.ListSnapshotsParams{SourceSandboxID: b.id, Kind: "pause"})
 	if err != nil || len(snaps) == 0 {
 		reason := "pause snapshot missing"
@@ -227,6 +236,8 @@ func (m *Manager) Fork(ctx context.Context, c Caller, id string, count int) (cli
 	if count < 1 || count > 8 {
 		return client.ForkResult{}, errInvalid("count must be 1-8")
 	}
+	ctx, span := telemetry.Start(ctx, "sandbox.fork", telemetry.Sandbox(id), attribute.Int("count", count))
+	defer span.End()
 	b, err := m.box(id)
 	if err != nil {
 		return client.ForkResult{}, err
@@ -313,7 +324,17 @@ func (m *Manager) createFromSnapshot(ctx context.Context, c Caller, parent db.Sa
 	if mode == "host" {
 		mode = "sandbox"
 	}
-	meta, _ := json.Marshal(map[string]string{"parent": parent.ID, "snapshot": snap.ID, "origin": why})
+	md := map[string]string{"parent": parent.ID, "snapshot": snap.ID, "origin": why}
+	var pmeta map[string]string
+	_ = json.Unmarshal([]byte(parent.Metadata), &pmeta)
+	for k, v := range pmeta {
+		// Clones keep the parent's secret placeholders: they are baked into
+		// the memory of processes already running in the snapshot.
+		if strings.HasPrefix(k, secretMetaPrefx) {
+			md[k] = v
+		}
+	}
+	meta, _ := json.Marshal(md)
 	if err := m.st.W.InsertSandbox(ctx, db.InsertSandboxParams{
 		ID: id, ClientID: c.ClientID, TemplateID: parent.TemplateID, State: StatePending, Vcpu: snap.Vcpu, MemMb: snap.MemMb,
 		DiskMb: parent.DiskMb, NetworkMode: parent.NetworkMode, NetworkPolicy: parent.NetworkPolicy, WorkspaceMode: mode,

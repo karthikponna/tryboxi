@@ -442,6 +442,18 @@ func (c *Client) ForwardPort(ctx context.Context, id string, guestPort int) (Por
 	return v, c.req(ctx, "POST", "/v1/sandboxes/"+id+"/ports", PortRequest{GuestPort: guestPort}, &v)
 }
 
+// Network returns a sandbox's egress policy and recent denials.
+func (c *Client) Network(ctx context.Context, id string) (NetworkInfo, error) {
+	var v NetworkInfo
+	return v, c.req(ctx, "GET", "/v1/sandboxes/"+id+"/network", nil, &v)
+}
+
+// UpdateNetwork changes a sandbox's egress policy live.
+func (c *Client) UpdateNetwork(ctx context.Context, id string, u NetworkUpdate) (NetworkInfo, error) {
+	var v NetworkInfo
+	return v, c.req(ctx, "POST", "/v1/sandboxes/"+id+"/network", u, &v)
+}
+
 // Recover extracts a lost sandbox's workspace into an artifact.
 func (c *Client) Recover(ctx context.Context, id string) (Artifact, error) {
 	var v Artifact
@@ -480,6 +492,40 @@ func (c *Client) Templates(ctx context.Context) ([]Template, error) {
 func (c *Client) CreateTemplate(ctx context.Context, r TemplateRequest) (Template, error) {
 	var v Template
 	return v, c.req(ctx, "POST", "/v1/templates", r, &v)
+}
+
+// Traces returns recent traces for a sandbox or execution (both optional).
+func (c *Client) Traces(ctx context.Context, sandboxID, execID string, limit int) ([]Trace, error) {
+	var v struct {
+		Traces []Trace `json:"traces"`
+	}
+	q := url.Values{"limit": {strconv.Itoa(limit)}}
+	if sandboxID != "" {
+		q.Set("sandbox_id", sandboxID)
+	}
+	if execID != "" {
+		q.Set("exec_id", execID)
+	}
+	return v.Traces, c.req(ctx, "GET", "/v1/traces?"+q.Encode(), nil, &v)
+}
+
+// PutSecret stores a host-side secret (value never returned).
+func (c *Client) PutSecret(ctx context.Context, r SecretRequest) (SecretInfo, error) {
+	var v SecretInfo
+	return v, c.req(ctx, "POST", "/v1/secrets", r, &v)
+}
+
+// Secrets lists stored secrets (names, hosts, masked preview).
+func (c *Client) Secrets(ctx context.Context) ([]SecretInfo, error) {
+	var v struct {
+		Secrets []SecretInfo `json:"secrets"`
+	}
+	return v.Secrets, c.req(ctx, "GET", "/v1/secrets", nil, &v)
+}
+
+// DeleteSecret removes a stored secret.
+func (c *Client) DeleteSecret(ctx context.Context, name string) error {
+	return c.req(ctx, "DELETE", "/v1/secrets/"+url.PathEscape(name), nil, nil)
 }
 
 // GC runs garbage collection.

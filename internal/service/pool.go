@@ -9,6 +9,7 @@ import (
 	"github.com/karthikponna/tryboxi/internal/network/policy"
 	"github.com/karthikponna/tryboxi/internal/scheduler"
 	"github.com/karthikponna/tryboxi/internal/store/db"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 )
 
 // poolVM is a VM restored from a golden snapshot and left paused, ready to
@@ -80,7 +81,9 @@ func (p *pool) claim(tplID string, vcpu, memMB, diskMB int) *poolVM {
 }
 
 // adoptPoolVM moves a pool VM into b: same id-less runtime, b's policy.
-func (m *Manager) adoptPoolVM(ctx context.Context, b *Box, pv *poolVM) error {
+func (m *Manager) adoptPoolVM(ctx context.Context, b *Box, pv *poolVM) (err error) {
+	ctx, span := telemetry.Start(ctx, "vm.pool_claim", telemetry.Sandbox(b.id))
+	defer func() { telemetry.End(span, err) }()
 	pb := pv.box
 	pb.mu.Lock()
 	vm, nw, gc, res := pb.vm, pb.net, pb.gc, pb.res
@@ -100,6 +103,7 @@ func (m *Manager) adoptPoolVM(ctx context.Context, b *Box, pv *poolVM) error {
 		}
 	}
 	nw.SetPolicy(b.policy())
+	nw.SetSecrets(b.bindings())
 	b.mu.Lock()
 	// b already holds its own reservation; drop the pool's.
 	b.vm, b.net, b.gc = vm, nw, gc

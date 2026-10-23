@@ -11,6 +11,7 @@ import (
 	guestv1 "github.com/karthikponna/tryboxi/gen/guest/v1"
 	"github.com/karthikponna/tryboxi/internal/network/policy"
 	"github.com/karthikponna/tryboxi/internal/store/db"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 	"github.com/karthikponna/tryboxi/internal/vmm"
 	"github.com/karthikponna/tryboxi/pkg/client"
 )
@@ -40,6 +41,8 @@ umount /mnt/lost || true
 // the lost disk (the original is never modified) and the disk is never
 // mounted on the host.
 func (m *Manager) Recover(ctx context.Context, id string) (client.Artifact, error) {
+	ctx, span := telemetry.Start(ctx, "sandbox.recover", telemetry.Sandbox(id))
+	defer span.End()
 	b, err := m.box(id)
 	if err != nil {
 		return client.Artifact{}, err
@@ -115,7 +118,7 @@ func (m *Manager) coldBootWith(ctx context.Context, b *Box, rootfs string, diskM
 	if fi, err := os.Stat(disk); err == nil && fi.Size() < int64(diskMB)<<20 {
 		_ = os.Truncate(disk, int64(diskMB)<<20)
 	}
-	nw, err := m.be.NewNet(b.policy(), nil, m.log)
+	nw, err := m.newNet(b, false)
 	if err != nil {
 		return err
 	}

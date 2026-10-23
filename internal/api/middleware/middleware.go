@@ -9,12 +9,17 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 )
 
 type ctxKey int
@@ -168,8 +173,18 @@ func Common(log *slog.Logger, version, minClient string, next http.Handler) http
 		w.Header().Set("X-Sandboxd-Version", version)
 		w.Header().Set("X-Sandboxd-Min-Client", minClient)
 		ctx := context.WithValue(r.Context(), keyRequestID, id)
+		ctx, span := telemetry.Start(ctx, "HTTP "+r.Method, attribute.String("http.path", r.URL.Path), attribute.String("request.id", id))
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		t0 := time.Now()
+		r2 := r.WithContext(ctx)
+		defer func() {
+			span.SetAttributes(attribute.Int("http.status", sw.status))
+			var serr error
+			if sw.status >= 500 {
+				serr = fmt.Errorf("HTTP %d", sw.status)
+			}
+			telemetry.End(span, serr)
+		}()
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Error("panic in handler", "path", r.URL.Path, "panic", rec)
@@ -179,7 +194,7 @@ func Common(log *slog.Logger, version, minClient string, next http.Handler) http
 			}
 			log.Debug("http", "method", r.Method, "path", r.URL.Path, "status", sw.status, "ms", time.Since(t0).Milliseconds(), "req", id)
 		}()
-		next.ServeHTTP(sw, r.WithContext(ctx))
+		next.ServeHTTP(sw, r2)
 	})
 }
 

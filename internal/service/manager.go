@@ -21,9 +21,11 @@ import (
 	"github.com/karthikponna/tryboxi/internal/config"
 	"github.com/karthikponna/tryboxi/internal/events"
 	"github.com/karthikponna/tryboxi/internal/image"
+	"github.com/karthikponna/tryboxi/internal/network/egress"
 	"github.com/karthikponna/tryboxi/internal/platform"
 	"github.com/karthikponna/tryboxi/internal/safefs"
 	"github.com/karthikponna/tryboxi/internal/scheduler"
+	"github.com/karthikponna/tryboxi/internal/secrets"
 	"github.com/karthikponna/tryboxi/internal/store"
 	"github.com/karthikponna/tryboxi/internal/store/db"
 	"github.com/karthikponna/tryboxi/internal/version"
@@ -56,6 +58,9 @@ type Manager struct {
 
 	pool   *pool
 	builds sync.Map // template name -> *sync.Mutex (one build at a time)
+
+	secrets *secrets.Store
+	ca      *egress.CA
 }
 
 // Artifact file names inside <data_root>/kernels.
@@ -82,6 +87,14 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store, be backend.Ba
 	_ = os.Chmod(cfg.DataRoot, 0o700)
 	if err := m.prepareBootArtifacts(); err != nil {
 		return nil, err
+	}
+	sec, err := secrets.Open(cfg.Dir("secrets.json"))
+	if err != nil {
+		return nil, err
+	}
+	m.secrets = sec
+	if m.ca, err = egress.LoadOrCreateCA(cfg.Dir("ca")); err != nil {
+		return nil, fmt.Errorf("proxy CA: %w", err)
 	}
 	m.pool = newPool(m)
 	m.sched.SetReclaimer(m.pool.reclaim)
@@ -309,6 +322,7 @@ func (m *Manager) syncOptions() workspace.Options {
 		Excludes:       m.cfg.Sync.Excludes,
 		SecretExcludes: m.cfg.Sync.SecretExcludes,
 		MaxFileBytes:   int64(m.cfg.Sync.MaxFileMB) << 20,
+		DenyContent:    m.secrets.Values(),
 	}
 }
 

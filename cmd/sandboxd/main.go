@@ -31,6 +31,7 @@ import (
 	"github.com/karthikponna/tryboxi/internal/safefs"
 	"github.com/karthikponna/tryboxi/internal/service"
 	"github.com/karthikponna/tryboxi/internal/store"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 	"github.com/karthikponna/tryboxi/internal/version"
 )
 
@@ -54,6 +55,7 @@ func newLogger(level string) *slog.Logger {
 
 func serveCmd() *cobra.Command {
 	var debug bool
+	var metricsListen, otlpEndpoint string
 	c := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the daemon in the foreground",
@@ -65,10 +67,21 @@ func serveCmd() *cobra.Command {
 			if debug {
 				cfg.LogLevel = "debug"
 			}
+			if metricsListen != "" {
+				cfg.MetricsListen = metricsListen
+			}
+			if otlpEndpoint != "" {
+				cfg.Telemetry.OTLPEndpoint = otlpEndpoint
+			}
 			log := newLogger(cfg.LogLevel)
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
+			traces, flush, err := telemetry.Init(ctx, telemetry.Config{OTLPEndpoint: cfg.Telemetry.OTLPEndpoint, Version: version.Version})
+			if err != nil {
+				return err
+			}
+			defer flush(context.Background())
 			st, err := store.Open(ctx, cfg.Dir("state.db"))
 			if err != nil {
 				return err
@@ -89,7 +102,7 @@ func serveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			srv := api.New(mgr, log, apispec.OpenAPI)
+			srv := api.New(mgr, log, apispec.OpenAPI, traces)
 			hs := &http.Server{Handler: srv.Handler(tok), ConnContext: api.ConnContext, ReadHeaderTimeout: 10 * time.Second}
 
 			if err := os.MkdirAll(filepath.Dir(cfg.Socket), 0o700); err != nil {
@@ -113,6 +126,18 @@ func serveCmd() *cobra.Command {
 			_ = os.Chmod(cfg.Socket, mode)
 			go func() { _ = hs.Serve(ul) }()
 			log.Info("sandboxd listening", "socket", cfg.Socket, "data_root", cfg.DataRoot, "backend", be.Driver().Name(), "version", version.Version)
+			if cfg.MetricsListen != "" {
+				ml, err := net.Listen("tcp", cfg.MetricsListen)
+				if err != nil {
+					return err
+				}
+				ms := &http.Server{Handler: srv.MetricsHandler(), ReadHeaderTimeout: 10 * time.Second}
+				go func() { _ = ms.Serve(ml) }()
+				log.Info("metrics listener (read-only /metrics, no auth)", "addr", cfg.MetricsListen)
+			}
+			if cfg.TelemetryEndpoint() != "" {
+				log.Info("exporting traces over OTLP", "endpoint", cfg.TelemetryEndpoint())
+			}
 			if cfg.TCPListen != "" {
 				tl, err := net.Listen("tcp", cfg.TCPListen)
 				if err != nil {
@@ -132,6 +157,8 @@ func serveCmd() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&debug, "debug", false, "debug logging")
+	c.Flags().StringVar(&metricsListen, "metrics-listen", "", "serve read-only /metrics for Prometheus on this address (e.g. 127.0.0.1:9464)")
+	c.Flags().StringVar(&otlpEndpoint, "otlp-endpoint", "", "export traces to this OTLP/HTTP endpoint (e.g. http://127.0.0.1:4318)")
 	return c
 }
 

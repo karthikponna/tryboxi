@@ -37,6 +37,7 @@ func main() {
 		psCmd(), createCmd(), execCmd(), logsCmd(), grepCmd(), shellCmd(), rmCmd(), pauseCmd(), resumeCmd(),
 		syncCmd(), cpCmd(), diffCmd(), applyCmd(), pullCmd(), undoCmd(), snapshotCmd(), forkCmd(), restoreCmd(),
 		portCmd(), recoverCmd(), templatesCmd(), topCmd(), eventsCmd(), gcCmd(), healthCmd(), mcpCmd(), artifactsCmd(),
+		secretCmd(), traceCmd(), netCmd(),
 	)
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -113,8 +114,8 @@ func psCmd() *cobra.Command {
 
 func createCmd() *cobra.Command {
 	var req client.CreateSandboxRequest
-	var workspace, mode, net string
-	var allow []string
+	var workspace, mode, net, setupMode string
+	var allow, autoPull []string
 	c := &cobra.Command{
 		Use: "create", Short: "Create a sandbox",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -122,10 +123,10 @@ func createCmd() *cobra.Command {
 			defer cancel()
 			if workspace != "" {
 				abs, _ := filepath.Abs(workspace)
-				req.Workspace = &client.WorkspaceSpec{HostPath: abs, Mode: mode}
+				req.Workspace = &client.WorkspaceSpec{HostPath: abs, Mode: mode, AutoPull: autoPull}
 			}
-			if net != "" || len(allow) > 0 {
-				req.Network = &client.NetworkSpec{Mode: net, Allow: allow}
+			if net != "" || len(allow) > 0 || setupMode != "" {
+				req.Network = &client.NetworkSpec{Mode: net, Allow: allow, SetupMode: setupMode}
 			}
 			s, err := cli().CreateSandbox(cx, req)
 			if err != nil {
@@ -136,6 +137,13 @@ func createCmd() *cobra.Command {
 				return nil
 			}
 			fmt.Printf("%s  %s (booted from %s in %dms)\n", s.ID, s.State, s.BootedFrom, s.BootMs)
+			for _, st := range s.Setup {
+				code := "?"
+				if st.ExitCode != nil {
+					code = strconv.Itoa(*st.ExitCode)
+				}
+				fmt.Printf("  setup: %-40s exit=%s (%s)\n", st.Cmd, code, st.ExecID)
+			}
 			if s.Notice != "" {
 				fmt.Println("note:", s.Notice)
 			}
@@ -150,8 +158,12 @@ func createCmd() *cobra.Command {
 	f.IntVar(&req.MemMB, "mem", 0, "memory MB")
 	f.IntVar(&req.DiskMB, "disk", 0, "disk MB")
 	f.StringVar(&net, "net", "", "network mode: none | allowlist | full")
-	f.StringSliceVar(&allow, "allow", nil, "extra allowed hosts/CIDRs")
+	f.StringSliceVar(&allow, "allow", nil, "extra allowed hosts, CIDRs, or @presets (@browsers, @huggingface, ...)")
+	f.StringArrayVar(&req.Setup, "setup", nil, "setup command run once with open network, then the sandbox is locked down (repeatable)")
+	f.StringVar(&setupMode, "setup-net", "", "network mode during setup (default full)")
+	f.StringSliceVar(&autoPull, "auto-pull", nil, `files copied back to the host when commands change them ("default" = manifests + lockfiles)`)
 	f.StringVar(&req.SessionKey, "session", "", "session key (reuse a live sandbox)")
+	f.StringSliceVar(&req.Secrets, "secret", nil, "bind a stored secret by name (VM sees a placeholder only)")
 	f.IntVar(&req.IdleTimeoutS, "idle", 0, "idle timeout seconds before pause-to-disk")
 	return c
 }

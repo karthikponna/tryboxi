@@ -30,7 +30,9 @@ type Handler struct {
 	Resolver Resolver
 	OnDeny   DenyFunc
 	TTL      uint32
-	mu       sync.RWMutex
+	// Extra allows names beyond the policy (hosts a bound secret may reach).
+	Extra func(name string) bool
+	mu    sync.RWMutex
 }
 
 // SetPolicy swaps the policy (e.g. when a warm-pool VM is claimed).
@@ -66,7 +68,7 @@ func (h *Handler) Answer(ctx context.Context, q []byte) ([]byte, error) {
 	}
 	qq := req.Question[0]
 	name := strings.TrimSuffix(strings.ToLower(qq.Name), ".")
-	if !h.pol().AllowHost(name) {
+	if !h.pol().AllowHost(name) && !(h.Extra != nil && h.pol().Mode != policy.ModeNone && h.Extra(name)) {
 		if h.OnDeny != nil {
 			h.OnDeny(name, "not in allowlist")
 		}

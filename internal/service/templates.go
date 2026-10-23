@@ -24,8 +24,10 @@ import (
 	"github.com/karthikponna/tryboxi/internal/scheduler"
 	"github.com/karthikponna/tryboxi/internal/store"
 	"github.com/karthikponna/tryboxi/internal/store/db"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 	"github.com/karthikponna/tryboxi/internal/workspace"
 	"github.com/karthikponna/tryboxi/pkg/client"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const baseTemplateName = "base"
@@ -213,7 +215,7 @@ func (m *Manager) buildGolden(ctx context.Context, tpl db.Template, spec *Templa
 // captureGolden pauses b, snapshots it as tpl's golden snapshot, and
 // resumes it.
 func (m *Manager) captureGolden(ctx context.Context, b *Box, tpl db.Template) (db.Snapshot, error) {
-	snap, err := m.takeSnapshot(ctx, b, "golden", "", tpl.ID)
+	snap, err := m.takeSnapshot(ctx, b, "golden", m.goldenLabel(), tpl.ID)
 	if err != nil {
 		return snap, err
 	}
@@ -248,8 +250,8 @@ func (m *Manager) findGolden(ctx context.Context, tplID string, vcpu, memMB, dis
 		if !s.TemplateID.Valid || s.TemplateID.String != tplID {
 			continue
 		}
-		if s.Backend != m.drv.Name() || s.VmmVersion != m.drv.Version() || s.AgentVersion != m.agentVersion || s.KernelVersion != m.kernelVersion {
-			m.deleteSnapshot(ctx, s, "incompatible with current agent/kernel/VMM")
+		if s.Backend != m.drv.Name() || s.VmmVersion != m.drv.Version() || s.AgentVersion != m.agentVersion || s.KernelVersion != m.kernelVersion || s.Label != m.goldenLabel() {
+			m.deleteSnapshot(ctx, s, "incompatible with current agent/kernel/VMM/proxy CA")
 			continue
 		}
 		if int(s.Vcpu) != vcpu || int(s.MemMb) != memMB || s.DiskSizeBytes != int64(diskMB)<<20 {
@@ -398,6 +400,8 @@ func (m *Manager) startTemplateBuild(name string, spec TemplateSpec, detected st
 
 // BuildTemplate builds (or returns) the template for spec.
 func (m *Manager) BuildTemplate(ctx context.Context, name string, spec TemplateSpec, detected string) (db.Template, error) {
+	ctx, span := telemetry.Start(ctx, "template.build", attribute.String("template", name), attribute.String("stack", detected))
+	defer span.End()
 	mu := m.buildLock(name)
 	mu.Lock()
 	defer mu.Unlock()
@@ -531,11 +535,23 @@ func templateView(t db.Template) client.Template {
 	return v
 }
 
+// goldenLabel ties golden snapshots to the proxy CA baked into them.
+func (m *Manager) goldenLabel() string {
+	if m.ca == nil {
+		return ""
+	}
+	return "ca:" + m.ca.Fingerprint()
+}
+
 // guestRun runs a shell command in the guest to completion, streaming
 // combined output to w. Used for internal steps (builds, rescue).
 func guestRun(ctx context.Context, gc *guestclient.Client, cmd, cwd string, timeout time.Duration, w io.Writer) (int, error) {
+	return guestRunAs(ctx, gc, "", cmd, cwd, timeout, w)
+}
+
+func guestRunAs(ctx context.Context, gc *guestclient.Client, user, cmd, cwd string, timeout time.Duration, w io.Writer) (int, error) {
 	id := ids.New(ids.Execution)
-	st, err := gc.Exec(ctx, &guestv1.ExecRequest{ExecId: id, Command: cmd, Cwd: cwd, TimeoutS: uint32(timeout.Seconds())})
+	st, err := gc.Exec(ctx, &guestv1.ExecRequest{ExecId: id, Command: cmd, Cwd: cwd, User: user, TimeoutS: uint32(timeout.Seconds())})
 	if err != nil {
 		return -1, err
 	}

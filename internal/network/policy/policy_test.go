@@ -58,6 +58,21 @@ func TestNone(t *testing.T) {
 	}
 }
 
+func TestPresets(t *testing.T) {
+	p := MustCompile(Spec{Mode: ModeAllowlist, Allow: []string{"@docker", "@browsers"}})
+	for _, h := range []string{"registry-1.docker.io", "ghcr.io", "cdn.playwright.dev"} {
+		if !p.AllowHost(h) {
+			t.Errorf("%s should be allowed by presets", h)
+		}
+	}
+	if p.AllowHost("pypi.org") {
+		t.Error("python preset not requested")
+	}
+	if _, err := Compile(Spec{Allow: []string{"@nope"}}); err == nil {
+		t.Error("unknown preset must fail")
+	}
+}
+
 func TestInvalid(t *testing.T) {
 	for _, e := range []string{"a*b.com", "http://x.com", "foo bar"} {
 		if _, err := Compile(Spec{Allow: []string{e}}); err == nil {

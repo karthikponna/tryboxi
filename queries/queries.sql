@@ -214,3 +214,12 @@ SELECT * FROM network_policies WHERE name = ?;
 
 -- name: GetNetworkPolicy :one
 SELECT * FROM network_policies WHERE id = ?;
+
+-- name: SetExecutionExtras :exec
+UPDATE executions SET network_denied = ?, auto_pulled = ? WHERE id = ?;
+
+-- name: UpdateSandboxNetwork :exec
+UPDATE sandboxes SET network_mode = ?, network_policy = ? WHERE id = ?;
+
+-- name: UpdateSandboxMetadata :exec
+UPDATE sandboxes SET metadata = ? WHERE id = ?;

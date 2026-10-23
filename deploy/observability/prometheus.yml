@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: sandboxd
+    # sandboxd serve --metrics-listen 127.0.0.1:9464 (read-only /metrics)
+    static_configs:
+      - targets: ["host.docker.internal:9464"]

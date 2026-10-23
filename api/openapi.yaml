@@ -57,6 +57,7 @@ components:
         max_lifetime_s: {type: integer}
         session_key: {type: string}
         wait_for_capacity_s: {type: integer}
+        secrets: {type: array, items: {type: string}, description: "Stored secret names to bind (VM sees placeholders only)"}
         metadata: {type: object, additionalProperties: {type: string}}
     Sandbox:
       type: object
@@ -273,6 +274,34 @@ paths:
     post: {summary: Restore a backup artifact to the host repo, parameters: [{$ref: "#/components/parameters/id"}], responses: {"200": {description: OK}}}
   /v1/events:
     get: {summary: SSE feed of daemon events (?sandbox_id=; resume with Last-Event-ID), responses: {"200": {description: text/event-stream}}}
+  /v1/secrets:
+    get: {summary: List stored secrets (names, hosts, masked preview; never values), responses: {"200": {description: OK}}}
+    post:
+      summary: Store a host-side secret. Sandboxes bound to it see only a placeholder; the egress proxy swaps in the value for allowed hosts.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, value]
+              properties:
+                name: {type: string, description: "Env var name inside the sandbox"}
+                kind: {type: string, enum: [env, git]}
+                value: {type: string}
+                hosts: {type: array, items: {type: string}, description: "Hosts allowed to receive it (*.example.com ok)"}
+                repos: {type: array, items: {type: string}, description: "git: owner/repo globs"}
+                push_branches: {type: array, items: {type: string}, description: "git: branch globs a push may update; empty = read-only"}
+      responses: {"201": {description: Stored}}
+  /v1/secrets/{name}:
+    delete: {summary: Delete a secret, parameters: [{name: name, in: path, required: true, schema: {type: string}}], responses: {"200": {description: OK}}}
+  /v1/traces:
+    get:
+      summary: Recent traces (per-phase spans) for a sandbox or execution
+      parameters:
+        - {name: sandbox_id, in: query, schema: {type: string}}
+        - {name: exec_id, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer}}
+      responses: {"200": {description: OK}}
   /v1/gc:
     post: {summary: Garbage collection (dry_run supported), responses: {"200": {description: OK}}}
   /metrics:

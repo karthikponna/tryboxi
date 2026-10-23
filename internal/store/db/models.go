@@ -68,6 +68,8 @@ type Execution struct {
 	ChangedFiles   string         `json:"changed_files"`
 	CpuMs          sql.NullInt64  `json:"cpu_ms"`
 	MaxRssKb       sql.NullInt64  `json:"max_rss_kb"`
+	NetworkDenied  string         `json:"network_denied"`
+	AutoPulled     string         `json:"auto_pulled"`
 }
 
 type NetworkPolicy struct {

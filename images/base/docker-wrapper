@@ -1,0 +1,6 @@
+#!/bin/sh
+# Starts dockerd on first use, then runs the real docker CLI.
+if [ ! -S /var/run/docker.sock ] || ! /usr/bin/docker version >/dev/null 2>&1; then
+  sudo -n /usr/local/sbin/start-docker || exit 1
+fi
+exec /usr/bin/docker "$@"

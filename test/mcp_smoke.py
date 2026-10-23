@@ -55,6 +55,11 @@ tool("sandbox_exec", {"command": "seq 1 5000"})
 tool("sandbox_exec", {"command": "python3 -m http.server 8000 >/tmp/http.log 2>&1", "background": True})
 r = tool("sandbox_port", {"guest_port": 8000})
 tool("sandbox_status", {})
+r = tool("sandbox_exec", {"command": "curl -sS -m 5 -o /dev/null -w '%{http_code}' https://example.com || echo blocked"})
+assert "network_blocked: example.com" in r["content"][0]["text"], "blocked host not reported"
+tool("sandbox_network", {"allow": ["example.com"], "reason": "smoke test"})
+r = tool("sandbox_exec", {"command": "curl -sS -m 10 -o /dev/null -w '%{http_code}' https://example.com"})
+assert "200" in r["content"][0]["text"], "host not opened"
 tool("sandbox_snapshot", {"action": "checkpoint", "label": "smoke"})
 tool("sandbox_destroy", {})
 p.stdin.close()

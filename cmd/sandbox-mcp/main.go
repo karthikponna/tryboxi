@@ -147,8 +147,25 @@ func (a *adapter) sandbox(ctx context.Context, ss *mcp.ServerSession, explicit s
 	}
 	req := client.CreateSandboxRequest{Template: a.template, SessionKey: a.sessionKey, WaitForCapacityS: 60,
 		Metadata: map[string]string{"created_by": "sandbox-mcp", "client": os.Getenv("SANDBOX_CLIENT")}}
+	// Which secrets a sandbox gets is the user's choice (MCP config), never
+	// the model's.
+	for _, s := range strings.Split(os.Getenv("SANDBOX_SECRETS"), ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			req.Secrets = append(req.Secrets, s)
+		}
+	}
 	if ws := a.resolveWorkspace(ctx, ss); ws != "" {
 		req.Workspace = &client.WorkspaceSpec{HostPath: ws, Mode: "host"}
+		if ap := os.Getenv("SANDBOX_AUTO_PULL"); ap != "" {
+			req.Workspace.AutoPull = strings.Split(ap, ",")
+		}
+	}
+	// Setup commands (user-configured) run once with open network, then the
+	// sandbox is locked to its allowlist.
+	for _, s := range strings.Split(os.Getenv("SANDBOX_SETUP"), ";;") {
+		if s = strings.TrimSpace(s); s != "" {
+			req.Setup = append(req.Setup, s)
+		}
 	}
 	sb, err := a.cl.CreateSandbox(ctx, req)
 	if err != nil {
@@ -158,6 +175,13 @@ func (a *adapter) sandbox(ctx context.Context, ss *mcp.ServerSession, explicit s
 	a.sandboxID = sb.ID
 	a.mu.Unlock()
 	note := ""
+	for _, st := range sb.Setup {
+		code := "?"
+		if st.ExitCode != nil {
+			code = fmt.Sprint(*st.ExitCode)
+		}
+		note += fmt.Sprintf("(setup: %s -> exit %s)\n", st.Cmd, code)
+	}
 	if !sb.Reused {
 		note = fmt.Sprintf("(started sandbox %s in %dms from %s", sb.ID, sb.BootMs, sb.BootedFrom)
 		if sb.HostPath != "" {
@@ -210,6 +234,26 @@ func fmtExec(e client.Execution, note string) string {
 	if e.StdoutTruncated || e.StderrTruncated {
 		fmt.Fprintf(&b, "(output trimmed; full log is exec %s: %d stdout bytes, %d stderr bytes)\n", e.ID, e.StdoutBytes, e.StderrBytes)
 	}
+	if len(e.NetworkDenied) > 0 {
+		fmt.Fprintf(&b, "network_blocked: %s (not in this sandbox's allowlist). If the task needs them, call sandbox_network with these hosts and a reason; the user will be asked to approve.\n", strings.Join(e.NetworkDenied, ", "))
+	}
+	if e.AutoPulled != nil {
+		var done, skipped []string
+		for _, f := range e.AutoPulled.Files {
+			switch f.Action {
+			case "written", "merged":
+				done = append(done, f.Path)
+			case "skipped", "conflict":
+				skipped = append(skipped, f.Path+" ("+f.Reason+")")
+			}
+		}
+		if len(done) > 0 {
+			fmt.Fprintf(&b, "auto_pulled to host: %s (backup %s)\n", strings.Join(done, ", "), e.AutoPulled.BackupArtifactID)
+		}
+		if len(skipped) > 0 {
+			fmt.Fprintf(&b, "auto_pull skipped: %s\n", strings.Join(skipped, "; "))
+		}
+	}
 	if len(e.ChangedFiles) > 0 {
 		shown := e.ChangedFiles
 		if len(shown) > 30 {
@@ -261,6 +305,12 @@ type snapIn struct {
 	SnapshotID string `json:"snapshot_id,omitempty" jsonschema:"restore: snapshot to restore (default latest checkpoint)"`
 	Count      int    `json:"count,omitempty" jsonschema:"fork: number of clones (1-8)"`
 	SandboxID  string `json:"sandbox_id,omitempty"`
+}
+
+type netIn struct {
+	Allow     []string `json:"allow" jsonschema:"Hosts (or *.wildcards, or @presets like @browsers) the task needs"`
+	Reason    string   `json:"reason" jsonschema:"Why the task needs them (shown to the user)"`
+	SandboxID string   `json:"sandbox_id,omitempty"`
 }
 
 type portIn struct {
@@ -436,6 +486,23 @@ func (a *adapter) register(s *mcp.Server) {
 				return text(b.String()), nil, nil
 			}
 			return infraErr(fmt.Errorf("unknown action %q", in.Action)), nil, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "sandbox_network", Description: "Ask to open network access for specific hosts the sandbox was blocked from (listed as network_blocked in sandbox_exec results). The user approves this call; the change applies immediately without restarting the sandbox.",
+		Annotations: &mcp.ToolAnnotations{Title: "Allow network hosts", DestructiveHint: ptr(true)}},
+		func(ctx context.Context, req *mcp.CallToolRequest, in netIn) (*mcp.CallToolResult, any, error) {
+			if len(in.Allow) == 0 {
+				return infraErr(errors.New("allow is required")), nil, nil
+			}
+			id, _, err := a.sandbox(ctx, req.Session, in.SandboxID)
+			if err != nil {
+				return infraErr(err), nil, nil
+			}
+			info, err := a.cl.UpdateNetwork(ctx, id, client.NetworkUpdate{Allow: in.Allow, Reason: in.Reason})
+			if err != nil {
+				return infraErr(err), nil, nil
+			}
+			return text(fmt.Sprintf("allowed %s for sandbox %s (mode %s). Retry the command.", strings.Join(in.Allow, ", "), id, info.Mode)), nil, nil
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "sandbox_port", Description: "Expose a TCP port from a server running in the sandbox on the host's 127.0.0.1 (returns the URL).",

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -52,8 +53,17 @@ type WarmPool struct {
 
 type Network struct {
 	DefaultMode policy.Mode `yaml:"default_mode"`
-	Allow       []string    `yaml:"allow"`
-	Deny        []string    `yaml:"deny"`
+	// Presets are ecosystem host lists added to every sandbox (see
+	// policy.Presets): node, python, go, rust, ubuntu, github, docker, ...
+	Presets []string `yaml:"presets"`
+	Allow   []string `yaml:"allow"`
+	Deny    []string `yaml:"deny"`
+	// Per-sandbox egress limits (0 = unlimited).
+	MaxConns       int     `yaml:"max_conns"`
+	ConnsPerMinute int     `yaml:"conns_per_minute"`
+	EgressMbps     float64 `yaml:"egress_mbps"`
+	// LogAllowed records every allowed connection as a net.allowed event.
+	LogAllowed bool `yaml:"log_allowed"`
 }
 
 type Sync struct {
@@ -89,19 +99,30 @@ type Health struct {
 
 // Config is the full daemon configuration.
 type Config struct {
-	DataRoot  string    `yaml:"data_root"`
-	Socket    string    `yaml:"socket"`
-	TCPListen string    `yaml:"tcp_listen"` // e.g. 127.0.0.1:7070 (bearer token auth)
-	LogLevel  string    `yaml:"log_level"`
-	Budgets   Budgets   `yaml:"budgets"`
-	Defaults  Defaults  `yaml:"defaults"`
-	Queue     Queue     `yaml:"queue"`
-	WarmPool  WarmPool  `yaml:"warm_pool"`
-	Network   Network   `yaml:"network"`
-	Sync      Sync      `yaml:"sync"`
-	Output    Output    `yaml:"output"`
-	Retention Retention `yaml:"retention"`
-	Health    Health    `yaml:"health"`
+	DataRoot  string `yaml:"data_root"`
+	Socket    string `yaml:"socket"`
+	TCPListen string `yaml:"tcp_listen"` // e.g. 127.0.0.1:7070 (bearer token auth)
+	// MetricsListen serves only /metrics, unauthenticated and read-only,
+	// for Prometheus (e.g. 127.0.0.1:9464). Empty disables it.
+	MetricsListen string    `yaml:"metrics_listen"`
+	LogLevel      string    `yaml:"log_level"`
+	Budgets       Budgets   `yaml:"budgets"`
+	Defaults      Defaults  `yaml:"defaults"`
+	Queue         Queue     `yaml:"queue"`
+	WarmPool      WarmPool  `yaml:"warm_pool"`
+	Network       Network   `yaml:"network"`
+	Sync          Sync      `yaml:"sync"`
+	Output        Output    `yaml:"output"`
+	Retention     Retention `yaml:"retention"`
+	Health        Health    `yaml:"health"`
+	Telemetry     Telemetry `yaml:"telemetry"`
+}
+
+// Telemetry configures trace export (spans are always kept in memory).
+type Telemetry struct {
+	// OTLPEndpoint, e.g. http://127.0.0.1:4318, exports spans to an
+	// OpenTelemetry collector (Jaeger, Grafana Tempo, Honeycomb, ...).
+	OTLPEndpoint string `yaml:"otlp_endpoint"`
 }
 
 // DefaultDataRoot returns the per-OS data root, overridable by SANDBOXD_ROOT.
@@ -161,7 +182,9 @@ func Default() *Config {
 		},
 		Queue:    Queue{MaxLen: 32, WaitForCapacityS: 30},
 		WarmPool: WarmPool{Enabled: true, MinWarm: 1, MaxWarm: 3, IdleShrinkS: 1800},
-		Network:  Network{DefaultMode: policy.ModeAllowlist, Allow: append([]string(nil), policy.DefaultAllow...)},
+		Network: Network{DefaultMode: policy.ModeAllowlist, Presets: append([]string(nil), policy.DefaultPresets...),
+			Allow:    append([]string(nil), policy.DefaultAllow...),
+			MaxConns: 256, ConnsPerMinute: 1200, LogAllowed: true},
 		Sync: Sync{
 			Excludes: []string{"node_modules", ".venv", "venv", "target", "dist", "build", ".next", ".turbo",
 				"__pycache__", ".pytest_cache", ".mypy_cache", ".gradle", ".DS_Store", ".cache"},
@@ -215,10 +238,27 @@ func (c *Config) Validate() error {
 	if c.Budgets.MaxMemMB <= 0 || c.Budgets.MaxVCPU <= 0 {
 		return errors.New("budgets must be positive")
 	}
-	if _, err := policy.Compile(policy.Spec{Mode: c.Network.DefaultMode, Allow: c.Network.Allow, Deny: c.Network.Deny}); err != nil {
+	if _, err := policy.Compile(policy.Spec{Mode: c.Network.DefaultMode, Allow: append(c.Network.PresetEntries(), c.Network.Allow...), Deny: c.Network.Deny}); err != nil {
 		return fmt.Errorf("network: %w", err)
 	}
 	return nil
+}
+
+// TelemetryEndpoint is the effective OTLP endpoint.
+func (c *Config) TelemetryEndpoint() string {
+	if c.Telemetry.OTLPEndpoint != "" {
+		return c.Telemetry.OTLPEndpoint
+	}
+	return os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+}
+
+// PresetEntries returns the configured presets as "@name" allow entries.
+func (n Network) PresetEntries() []string {
+	out := make([]string, 0, len(n.Presets))
+	for _, p := range n.Presets {
+		out = append(out, "@"+strings.TrimPrefix(p, "@"))
+	}
+	return out
 }
 
 // Dirs under the data root.

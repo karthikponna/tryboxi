@@ -7,16 +7,22 @@ import (
 	"log/slog"
 	"net"
 
+	"github.com/karthikponna/tryboxi/internal/network/egress"
 	"github.com/karthikponna/tryboxi/internal/network/policy"
 	"github.com/karthikponna/tryboxi/internal/vmm"
 )
 
-// NetEvent is a network policy decision.
-type NetEvent struct {
-	Type   string `json:"type"`
-	Host   string `json:"host,omitempty"`
-	Dest   string `json:"dest,omitempty"`
-	Reason string `json:"reason"`
+// NetEvent is a network policy decision or audit record.
+type NetEvent = egress.Event
+
+// NetOptions configure a VM's network.
+type NetOptions struct {
+	Policy     *policy.Policy
+	OnEvent    func(NetEvent)
+	Log        *slog.Logger
+	CA         *egress.CA
+	Limits     egress.Limits
+	LogAllowed bool
 }
 
 // Net is one VM's network attachment.
@@ -32,11 +38,13 @@ type Net interface {
 	Forwards() map[uint16]int
 	DialGuest(ctx context.Context, port uint16) (net.Conn, error)
 	SetPolicy(p *policy.Policy)
+	// SetSecrets binds host-side secrets (by placeholder) to this VM.
+	SetSecrets(b []egress.Binding)
 	Close() error
 }
 
 // Backend is everything OS-specific the daemon needs.
 type Backend interface {
 	Driver() vmm.Driver
-	NewNet(p *policy.Policy, onEvent func(NetEvent), log *slog.Logger) (Net, error)
+	NewNet(o NetOptions) (Net, error)
 }

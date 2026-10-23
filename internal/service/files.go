@@ -21,19 +21,24 @@ import (
 	"github.com/karthikponna/tryboxi/internal/ids"
 	"github.com/karthikponna/tryboxi/internal/store"
 	"github.com/karthikponna/tryboxi/internal/store/db"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 	"github.com/karthikponna/tryboxi/internal/workspace"
 	"github.com/karthikponna/tryboxi/pkg/client"
 )
 
 const chunkSize = 256 << 10
 
-// putTar streams a tar archive into dest in the guest.
+// putTar streams a tar archive into dest in the guest, owned by agent.
 func putTar(ctx context.Context, gc *guestclient.Client, dest string, deletes []string, r io.Reader) (*guestv1.PutFilesResponse, error) {
+	return putTarAs(ctx, gc, dest, "agent", deletes, r)
+}
+
+func putTarAs(ctx context.Context, gc *guestclient.Client, dest, owner string, deletes []string, r io.Reader) (*guestv1.PutFilesResponse, error) {
 	st, err := gc.PutFiles(ctx)
 	if err != nil {
 		return nil, err
 	}
-	first := &guestv1.PutFilesChunk{DestDir: dest, Delete: deletes, Owner: "agent"}
+	first := &guestv1.PutFilesChunk{DestDir: dest, Delete: deletes, Owner: owner}
 	buf := make([]byte, chunkSize)
 	sentFirst := false
 	for {
@@ -89,6 +94,8 @@ func getTar(ctx context.Context, gc *guestclient.Client, req *guestv1.GetFilesRe
 
 // syncWorkspace pushes host changes into /workspace (one-way).
 func (m *Manager) syncWorkspace(ctx context.Context, b *Box) (*client.SyncResult, error) {
+	ctx, span := telemetry.Start(ctx, "workspace.sync", telemetry.Sandbox(b.id))
+	defer span.End()
 	if b.row.HostRepoPath == "" {
 		return nil, errInvalid("sandbox %s has no host workspace", b.id)
 	}
@@ -179,6 +186,9 @@ func (m *Manager) PutFile(ctx context.Context, id, p string, r io.Reader, isTar 
 		if rerr != nil {
 			return nil, rerr
 		}
+		if err := m.checkLeak(string(data)); err != nil {
+			return nil, err
+		}
 		var buf bytes.Buffer
 		tw := tar.NewWriter(&buf)
 		_ = tw.WriteHeader(&tar.Header{Name: path.Base(p), Mode: 0o644, Size: int64(len(data)), ModTime: time.Now(), Typeflag: tar.TypeReg})
@@ -262,6 +272,8 @@ type diffMeta struct {
 // Diff computes the sandbox's changes vs its git HEAD and stores them (plus
 // the changed files themselves) as an artifact.
 func (m *Manager) Diff(ctx context.Context, id string) (client.DiffResult, error) {
+	ctx, span := telemetry.Start(ctx, "workspace.diff", telemetry.Sandbox(id))
+	defer span.End()
 	b, err := m.box(id)
 	if err != nil {
 		return client.DiffResult{}, err
@@ -321,6 +333,8 @@ func (m *Manager) Diff(ctx context.Context, id string) (client.DiffResult, error
 // Apply merges a diff artifact into the host repo after backing up every
 // host file it touches.
 func (m *Manager) Apply(ctx context.Context, id string, req client.ApplyRequest) (client.ApplyResult, error) {
+	ctx, span := telemetry.Start(ctx, "workspace.apply", telemetry.Sandbox(id))
+	defer span.End()
 	b, err := m.box(id)
 	if err != nil {
 		return client.ApplyResult{}, err
@@ -426,6 +440,8 @@ func (m *Manager) backup(ctx context.Context, b *Box, paths []string, reason str
 
 // Pull copies files changed inside the sandbox back to the host.
 func (m *Manager) Pull(ctx context.Context, id string, req client.PullRequest) (client.ApplyResult, error) {
+	ctx, span := telemetry.Start(ctx, "workspace.pull", telemetry.Sandbox(id))
+	defer span.End()
 	b, err := m.box(id)
 	if err != nil {
 		return client.ApplyResult{}, err
@@ -449,7 +465,16 @@ func (m *Manager) Pull(ctx context.Context, id string, req client.PullRequest) (
 	b.lc.RLock()
 	defer b.lc.RUnlock()
 	b.touch()
-	raw, err := getTar(ctx, b.guest(), &guestv1.GetFilesRequest{Path: "/workspace", Paths: paths, MaxBytes: 256 << 20})
+	return m.pullLocked(ctx, b, paths, req.Force)
+}
+
+// pullLocked copies paths from the VM to the host (caller holds lc.RLock).
+func (m *Manager) pullLocked(ctx context.Context, b *Box, paths []string, force bool) (client.ApplyResult, error) {
+	gc := b.guest()
+	if gc == nil {
+		return client.ApplyResult{}, errState("sandbox not running")
+	}
+	raw, err := getTar(ctx, gc, &guestv1.GetFilesRequest{Path: "/workspace", Paths: paths, MaxBytes: 256 << 20})
 	if err != nil {
 		return client.ApplyResult{}, err
 	}
@@ -465,7 +490,7 @@ func (m *Manager) Pull(ctx context.Context, id string, req client.PullRequest) (
 	if b.manifest == nil {
 		b.manifest, _ = workspace.LoadManifest(b.row.SyncManifestPath, b.row.HostRepoPath)
 	}
-	res, err := workspace.Pull(b.row.HostRepoPath, paths, vm, b.manifest, req.Force)
+	res, err := workspace.Pull(b.row.HostRepoPath, paths, vm, b.manifest, force)
 	if err == nil && b.row.SyncManifestPath != "" {
 		_ = b.manifest.Save(b.row.SyncManifestPath)
 	}

@@ -30,6 +30,46 @@ var DefaultAllow = []string{
 	"deb.nodesource.com",
 }
 
+// Presets are named host lists for common ecosystems, referenced as
+// "@name" in allow/deny lists. They include the CDNs real installs hit
+// (prebuilt binaries, browser downloads), not just the registry API.
+var Presets = map[string][]string{
+	"node": {"registry.npmjs.org", "*.npmjs.org", "registry.yarnpkg.com", "*.yarnpkg.com", "repo.yarnpkg.com",
+		"nodejs.org", "registry.npmmirror.com", "binaries.prisma.sh", "deb.nodesource.com", "bun.sh"},
+	"python": {"pypi.org", "files.pythonhosted.org", "download.pytorch.org", "astral.sh", "*.anaconda.org", "conda.anaconda.org"},
+	"go":     {"proxy.golang.org", "sum.golang.org", "go.dev", "golang.org", "dl.google.com", "storage.googleapis.com"},
+	"rust":   {"crates.io", "static.crates.io", "index.crates.io", "static.rust-lang.org", "sh.rustup.rs"},
+	"ubuntu": {"ports.ubuntu.com", "archive.ubuntu.com", "security.ubuntu.com", "ppa.launchpadcontent.net", "keyserver.ubuntu.com"},
+	"github": {"github.com", "*.github.com", "*.githubusercontent.com", "codeload.github.com"},
+	// Docker Hub serves layers from several CDN hosts under docker.com.
+	"docker": {"docker.io", "*.docker.io", "*.docker.com", "ghcr.io", "pkg-containers.githubusercontent.com",
+		"quay.io", "*.quay.io", "public.ecr.aws", "mcr.microsoft.com", "*.data.mcr.microsoft.com"},
+	"browsers": {"playwright.azureedge.net", "playwright-akamai.azureedge.net", "playwright-verizon.azureedge.net",
+		"cdn.playwright.dev", "googlechromelabs.github.io", "storage.googleapis.com", "edgedl.me.gvt1.com", "dl.google.com"},
+	"huggingface": {"huggingface.co", "*.huggingface.co", "*.hf.co"},
+}
+
+// DefaultPresets are enabled unless config overrides them.
+var DefaultPresets = []string{"node", "python", "go", "rust", "ubuntu", "github", "docker"}
+
+// Expand replaces "@preset" entries with their host lists.
+func Expand(entries []string) ([]string, error) {
+	var out []string
+	for _, e := range entries {
+		name, ok := strings.CutPrefix(strings.TrimSpace(e), "@")
+		if !ok {
+			out = append(out, e)
+			continue
+		}
+		hosts, found := Presets[strings.ToLower(name)]
+		if !found {
+			return nil, fmt.Errorf("unknown preset @%s", name)
+		}
+		out = append(out, hosts...)
+	}
+	return out, nil
+}
+
 // alwaysBlocked are destinations no sandbox may reach in any mode: the host,
 // the LAN, link-local (cloud metadata), CGNAT, multicast, and IPv6 local.
 var alwaysBlocked = mustPrefixes(
@@ -83,6 +123,10 @@ func Compile(spec Spec) (*Policy, error) {
 		p.allowPorts[port] = true
 	}
 	add := func(entries []string, names *[]string, cidrs *[]netip.Prefix) error {
+		entries, err := Expand(entries)
+		if err != nil {
+			return err
+		}
 		for _, e := range entries {
 			e = strings.ToLower(strings.TrimSpace(e))
 			if e == "" {

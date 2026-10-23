@@ -56,10 +56,24 @@ func mergeMCPJSON(path string, server map[string]any) error {
 	return writeFileMkdir(path, string(b)+"\n")
 }
 
+func extraEnv(secrets, setup string, autoPull bool) map[string]string {
+	env := map[string]string{}
+	if secrets != "" {
+		env["SANDBOX_SECRETS"] = secrets
+	}
+	if setup != "" {
+		env["SANDBOX_SETUP"] = setup
+	}
+	if autoPull {
+		env["SANDBOX_AUTO_PULL"] = "default"
+	}
+	return env
+}
+
 func mcpCmd() *cobra.Command {
 	mcp := &cobra.Command{Use: "mcp", Short: "Connect harnesses (Cursor, Claude Code, Codex) to sandboxd"}
-	var project string
-	var global bool
+	var project, secretsFlag, setupFlag string
+	var global, autoPull bool
 	install := &cobra.Command{
 		Use:   "install cursor|claude|codex",
 		Short: "Write the MCP server config and agent rules for a harness",
@@ -80,7 +94,11 @@ func mcpCmd() *cobra.Command {
 					home, _ := os.UserHomeDir()
 					cfgPath = filepath.Join(home, ".cursor", "mcp.json")
 				}
-				server := map[string]any{"command": bin, "args": []string{}, "env": map[string]string{"SANDBOX_WORKSPACE": "${workspaceFolder}", "SANDBOX_CLIENT": "cursor"}}
+				env := map[string]string{"SANDBOX_WORKSPACE": "${workspaceFolder}", "SANDBOX_CLIENT": "cursor"}
+				for k, v := range extraEnv(secretsFlag, setupFlag, autoPull) {
+					env[k] = v
+				}
+				server := map[string]any{"command": bin, "args": []string{}, "env": env}
 				if err := mergeMCPJSON(cfgPath, server); err != nil {
 					return err
 				}
@@ -101,7 +119,11 @@ func mcpCmd() *cobra.Command {
 				if global {
 					scope = "user"
 				}
-				claudeArgs := []string{"mcp", "add", "--scope", scope, "--env", "SANDBOX_CLIENT=claude", "sandbox", "--", bin}
+				claudeArgs := []string{"mcp", "add", "--scope", scope, "--env", "SANDBOX_CLIENT=claude"}
+				for k, v := range extraEnv(secretsFlag, setupFlag, autoPull) {
+					claudeArgs = append(claudeArgs, "--env", k+"="+v)
+				}
+				claudeArgs = append(claudeArgs, "sandbox", "--", bin)
 				if _, err := exec.LookPath("claude"); err == nil {
 					c := exec.Command("claude", claudeArgs...)
 					c.Dir = project
@@ -150,6 +172,9 @@ func mcpCmd() *cobra.Command {
 		},
 	}
 	install.Flags().StringVar(&project, "project", "", "project directory (default: current directory)")
+	install.Flags().StringVar(&secretsFlag, "secrets", "", "comma-separated stored secret names to bind to every sandbox (VM sees placeholders)")
+	install.Flags().StringVar(&setupFlag, "setup", "", `setup command run once per sandbox with open network, e.g. "npm ci" (separate several with ";;")`)
+	install.Flags().BoolVar(&autoPull, "auto-pull", false, "copy changed manifests/lockfiles back to the host automatically (with backup)")
 	install.Flags().BoolVar(&global, "global", false, "install for the user instead of the project (Cursor: ~/.cursor/mcp.json; Claude: --scope user)")
 	mcp.AddCommand(install)
 	return mcp

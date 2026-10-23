@@ -78,7 +78,7 @@ func main() {
 	}
 	newNet := func() *usernet.Network {
 		pol := policy.MustCompile(policy.Spec{Mode: policy.ModeAllowlist, Allow: policy.DefaultAllow})
-		n, err := usernet.New(pol, func(e usernet.Event) { log.Printf("net event: %+v", e) }, nil)
+		n, err := usernet.New(usernet.Options{Policy: pol, OnEvent: func(e usernet.Event) { log.Printf("net event: %+v", e) }})
 		must(err)
 		return n
 	}

@@ -24,8 +24,20 @@ Notes:
   output and fix the code.
 - `changed_files` lists files the command modified inside the VM (formatters,
   lockfiles, codegen). Use `sandbox_pull` to copy them to the host when wanted.
-- Network access is limited to package registries and GitHub by default.
-- `.env` files and keys are never copied into the VM. Pass needed values with
-  the `env` argument of `sandbox_exec` only if the user asks.
+- Network access is limited to package registries, GitHub, and container
+  registries by default. If a command needed a blocked host, the result has a
+  `network_blocked:` line; call `sandbox_network` with those hosts and a short
+  reason, and the user will be asked to approve. Don't work around blocks.
+- Docker works inside the sandbox (`docker run`, `docker compose up -d` for
+  databases and services); the daemon starts on first use. Publish ports and
+  use `sandbox_port` to reach them from the host.
+- If the result has `auto_pulled to host:`, those files (manifests,
+  lockfiles) were already copied to the host repo with a backup.
+- `.env` files and keys are never copied into the VM, and real secret values
+  are rejected if you put them in a command. If the user bound secrets to the
+  sandbox, their env vars (e.g. `$OPENAI_API_KEY`) hold placeholders that the
+  network proxy swaps for the real value only on requests to the allowed
+  hosts. Use the env var as-is; never try to print or decode it.
+- `git push` works only to branches the user allowed (for example `sbx/*`).
 - To try risky changes, `sandbox_snapshot` first; `sandbox_snapshot` with
   `action: "restore"` brings back a clean copy.

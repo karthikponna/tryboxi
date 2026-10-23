@@ -20,9 +20,11 @@ import (
 	"github.com/karthikponna/tryboxi/internal/scheduler"
 	"github.com/karthikponna/tryboxi/internal/store"
 	"github.com/karthikponna/tryboxi/internal/store/db"
+	"github.com/karthikponna/tryboxi/internal/telemetry"
 	"github.com/karthikponna/tryboxi/internal/vmm"
 	"github.com/karthikponna/tryboxi/internal/workspace"
 	"github.com/karthikponna/tryboxi/pkg/client"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const cmdline = "console=hvc0 rdinit=/init sbx.root=/dev/vda quiet loglevel=3"
@@ -99,14 +101,19 @@ func (m *Manager) CreateSandbox(ctx context.Context, c Caller, req client.Create
 		return client.Sandbox{}, errInvalid("workspace.mode must be host, sandbox, or none")
 	}
 
-	nspec := policy.Spec{Mode: cfg.Network.DefaultMode, Allow: cfg.Network.Allow, Deny: cfg.Network.Deny}
+	baseAllow := append(cfg.Network.PresetEntries(), cfg.Network.Allow...)
+	baseAllow = append(baseAllow, stackPresets(ws.HostPath)...)
+	nspec := policy.Spec{Mode: cfg.Network.DefaultMode, Allow: baseAllow, Deny: cfg.Network.Deny}
 	if req.Network != nil {
 		if req.Network.Mode != "" {
 			nspec.Mode = policy.Mode(req.Network.Mode)
 		}
-		nspec.Allow = append(append([]string(nil), cfg.Network.Allow...), req.Network.Allow...)
+		nspec.Allow = append(append([]string(nil), baseAllow...), req.Network.Allow...)
 		nspec.Deny = append(append([]string(nil), cfg.Network.Deny...), req.Network.Deny...)
 		nspec.Ports = req.Network.Ports
+	}
+	if len(ws.AutoPull) > 0 && ws.Mode != "host" {
+		return client.Sandbox{}, errInvalid("workspace.auto_pull needs workspace mode host")
 	}
 	if _, err := policy.Compile(nspec); err != nil {
 		return client.Sandbox{}, errInvalid("network: %v", err)
@@ -140,10 +147,23 @@ func (m *Manager) CreateSandbox(ctx context.Context, c Caller, req client.Create
 	}
 
 	id := ids.New(ids.Sandbox)
+	ctx, span := telemetry.Start(ctx, "sandbox.create", telemetry.Sandbox(id), attribute.String("template", tpl.Name))
+	defer span.End()
 	now := time.Now()
 	meta := req.Metadata
 	if meta == nil {
 		meta = map[string]string{}
+	}
+	for k := range meta {
+		if strings.HasPrefix(k, secretMetaPrefx) || strings.HasPrefix(k, "port:") {
+			delete(meta, k)
+		}
+	}
+	if err := m.secretMeta(req.Secrets, meta); err != nil {
+		return client.Sandbox{}, err
+	}
+	if pats := expandAutoPull(ws.AutoPull); len(pats) > 0 {
+		meta[autoPullMeta] = strings.Join(pats, ",")
 	}
 	metaJSON, _ := json.Marshal(meta)
 	nspecJSON, _ := json.Marshal(nspec)
@@ -180,16 +200,33 @@ func (m *Manager) CreateSandbox(ctx context.Context, c Caller, req client.Create
 		}
 		return client.Sandbox{}, err
 	}
+	var setup []client.SetupStep
+	if len(req.Setup) > 0 {
+		setupMode := ""
+		if req.Network != nil {
+			setupMode = req.Network.SetupMode
+		}
+		var serr error
+		setup, serr = m.runSetup(ctx, b, req.Setup, setupMode)
+		if serr != nil {
+			notice = strings.TrimSpace(notice + " setup failed: " + serr.Error())
+		}
+	}
 	v := b.view()
 	v.Notice = notice
+	v.Setup = setup
 	return v, nil
 }
 
 // bootNew reserves resources, obtains a VM, and syncs the workspace.
-func (m *Manager) bootNew(ctx context.Context, b *Box, c Caller, tpl db.Template, wait time.Duration) error {
+func (m *Manager) bootNew(ctx context.Context, b *Box, c Caller, tpl db.Template, wait time.Duration) (err error) {
+	ctx, span := telemetry.Start(ctx, "sandbox.boot", telemetry.Sandbox(b.id), attribute.String("template", tpl.Name))
+	defer func() { telemetry.End(span, err) }()
 	t0 := time.Now()
 	r := b.row
+	_, rspan := telemetry.Start(ctx, "scheduler.reserve", telemetry.Sandbox(b.id))
 	res, err := m.sched.Reserve(ctx, scheduler.Request{ClientID: c.ClientID, Priority: c.Priority, VCPU: int(r.Vcpu), MemMB: int(r.MemMb)}, wait)
+	telemetry.End(rspan, err)
 	if err != nil {
 		return err
 	}
@@ -325,7 +362,23 @@ func (b *Box) killVMKeepRes() {
 }
 
 func (m *Manager) netEventSink(id string) func(backend.NetEvent) {
-	return func(e backend.NetEvent) { m.bus.Emit(id, "", e.Type, e) }
+	return func(e backend.NetEvent) {
+		telemetry.NetEvents.WithLabelValues(e.Type).Inc()
+		if e.Type == "net.denied" || e.Type == "secret.blocked" || e.Type == "net.ratelimited" {
+			if b, err := m.box(id); err == nil {
+				host := e.Host
+				if host == "" {
+					host = e.Dest
+				}
+				b.noteDenial(host, e.Reason)
+			}
+		}
+		if e.BytesUp > 0 || e.BytesDown > 0 {
+			telemetry.NetBytes.WithLabelValues("up").Add(float64(e.BytesUp))
+			telemetry.NetBytes.WithLabelValues("down").Add(float64(e.BytesDown))
+		}
+		m.bus.Emit(id, "", e.Type, e)
+	}
 }
 
 func (m *Manager) baseSpec(b *Box, disk string, nw backend.Net) vmm.Spec {
@@ -376,7 +429,9 @@ func consoleTail(dir string) string {
 }
 
 // coldBoot boots a fresh VM from a rootfs image.
-func (m *Manager) coldBoot(ctx context.Context, b *Box, rootfs string, diskMB int) error {
+func (m *Manager) coldBoot(ctx context.Context, b *Box, rootfs string, diskMB int) (err error) {
+	ctx, span := telemetry.Start(ctx, "vm.cold_boot", telemetry.Sandbox(b.id))
+	defer func() { telemetry.End(span, err) }()
 	r := b.row
 	disk := filepath.Join(r.DirPath, "disk.img")
 	_ = os.Remove(disk)
@@ -388,7 +443,7 @@ func (m *Manager) coldBoot(ctx context.Context, b *Box, rootfs string, diskMB in
 			return err
 		}
 	}
-	nw, err := m.be.NewNet(b.policy(), m.netEventSink(b.id), m.log)
+	nw, err := m.newNet(b, true)
 	if err != nil {
 		return err
 	}
@@ -417,14 +472,16 @@ func (m *Manager) coldBoot(ctx context.Context, b *Box, rootfs string, diskMB in
 }
 
 // restoreInto starts the box from a snapshot (golden, pause, checkpoint).
-func (m *Manager) restoreInto(ctx context.Context, b *Box, snap db.Snapshot) error {
+func (m *Manager) restoreInto(ctx context.Context, b *Box, snap db.Snapshot) (err error) {
+	ctx, span := telemetry.Start(ctx, "vm.restore", telemetry.Sandbox(b.id), attribute.String("snapshot.kind", snap.Kind))
+	defer func() { telemetry.End(span, err) }()
 	r := b.row
 	disk := filepath.Join(r.DirPath, "disk.img")
 	_ = os.Remove(disk)
 	if err := m.drv.CloneFile(snap.DiskPath, disk); err != nil {
 		return fmt.Errorf("clone snapshot disk: %w", err)
 	}
-	nw, err := m.be.NewNet(b.policy(), m.netEventSink(b.id), m.log)
+	nw, err := m.newNet(b, true)
 	if err != nil {
 		return err
 	}
@@ -465,14 +522,19 @@ func snapFiles(s db.Snapshot) vmm.SnapshotFiles {
 }
 
 // configureGuest sets identity, network, dead-man switch, and port forwards.
-func (m *Manager) configureGuest(ctx context.Context, b *Box, identity bool) error {
+func (m *Manager) configureGuest(ctx context.Context, b *Box, identity bool) (err error) {
+	ctx, span := telemetry.Start(ctx, "guest.configure", telemetry.Sandbox(b.id))
+	defer func() { telemetry.End(span, err) }()
 	b.mu.Lock()
 	gc, nw := b.gc, b.net
 	b.mu.Unlock()
+	if err := m.ensureCA(ctx, gc); err != nil {
+		return err
+	}
 	req := &guestv1.ConfigureRequest{
 		IpCidr: nw.GuestCIDR(), Gateway: nw.Gateway(), Dns: nw.DNS(), Mtu: uint32(nw.MTU()),
 		DeadmanS: uint32(m.cfg.Health.DeadmanS), SandboxId: b.id,
-		Env: map[string]string{"SANDBOX_ID": b.id},
+		Env: m.guestEnv(b),
 	}
 	if identity {
 		req.Hostname = hostname(b.id)

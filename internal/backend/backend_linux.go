@@ -4,9 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/karthikponna/tryboxi/internal/network/egress"
 	"github.com/karthikponna/tryboxi/internal/network/linuxnet"
-	"github.com/karthikponna/tryboxi/internal/network/policy"
 	"github.com/karthikponna/tryboxi/internal/vmm"
 	"github.com/karthikponna/tryboxi/internal/vmm/firecracker"
 )
@@ -27,12 +25,8 @@ func New(dataRoot string, log *slog.Logger) (Backend, error) {
 
 func (b *linuxBackend) Driver() vmm.Driver { return b.d }
 
-func (b *linuxBackend) NewNet(p *policy.Policy, onEvent func(NetEvent), log *slog.Logger) (Net, error) {
-	n, err := linuxnet.New(b.pool, p, func(e egress.Event) {
-		if onEvent != nil {
-			onEvent(NetEvent{Type: e.Type, Host: e.Host, Dest: e.Dest, Reason: e.Reason})
-		}
-	}, log)
+func (b *linuxBackend) NewNet(o NetOptions) (Net, error) {
+	n, err := linuxnet.New(b.pool, linuxnet.Options{Policy: o.Policy, OnEvent: o.OnEvent, Log: o.Log, CA: o.CA, Limits: o.Limits, LogAllowed: o.LogAllowed})
 	if err != nil {
 		return nil, err
 	}

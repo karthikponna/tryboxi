@@ -183,7 +183,7 @@ func (q *Queries) GetClientByTokenHash(ctx context.Context, tokenHash sql.NullSt
 }
 
 const getExecution = `-- name: GetExecution :one
-SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb FROM executions WHERE id = ?
+SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb, network_denied, auto_pulled FROM executions WHERE id = ?
 `
 
 func (q *Queries) GetExecution(ctx context.Context, id string) (Execution, error) {
@@ -217,12 +217,14 @@ func (q *Queries) GetExecution(ctx context.Context, id string) (Execution, error
 		&i.ChangedFiles,
 		&i.CpuMs,
 		&i.MaxRssKb,
+		&i.NetworkDenied,
+		&i.AutoPulled,
 	)
 	return i, err
 }
 
 const getExecutionByIdempotencyKey = `-- name: GetExecutionByIdempotencyKey :one
-SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb FROM executions WHERE sandbox_id = ? AND idempotency_key = ?
+SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb, network_denied, auto_pulled FROM executions WHERE sandbox_id = ? AND idempotency_key = ?
 `
 
 type GetExecutionByIdempotencyKeyParams struct {
@@ -261,6 +263,8 @@ func (q *Queries) GetExecutionByIdempotencyKey(ctx context.Context, arg GetExecu
 		&i.ChangedFiles,
 		&i.CpuMs,
 		&i.MaxRssKb,
+		&i.NetworkDenied,
+		&i.AutoPulled,
 	)
 	return i, err
 }
@@ -1071,7 +1075,7 @@ func (q *Queries) ListEventsAfter(ctx context.Context, arg ListEventsAfterParams
 }
 
 const listExecutions = `-- name: ListExecutions :many
-SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb FROM executions
+SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb, network_denied, auto_pulled FROM executions
 WHERE sandbox_id = ? AND (?2 IS NULL OR state = ?2)
 ORDER BY seq_in_sandbox DESC LIMIT ?3
 `
@@ -1119,6 +1123,8 @@ func (q *Queries) ListExecutions(ctx context.Context, arg ListExecutionsParams) 
 			&i.ChangedFiles,
 			&i.CpuMs,
 			&i.MaxRssKb,
+			&i.NetworkDenied,
+			&i.AutoPulled,
 		); err != nil {
 			return nil, err
 		}
@@ -1172,7 +1178,7 @@ func (q *Queries) ListExpiredArtifacts(ctx context.Context, expiresAt sql.NullIn
 }
 
 const listFinishedExecutionsBefore = `-- name: ListFinishedExecutionsBefore :many
-SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb FROM executions WHERE finished_at IS NOT NULL AND finished_at < ?
+SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb, network_denied, auto_pulled FROM executions WHERE finished_at IS NOT NULL AND finished_at < ?
 `
 
 func (q *Queries) ListFinishedExecutionsBefore(ctx context.Context, finishedAt sql.NullInt64) ([]Execution, error) {
@@ -1212,6 +1218,8 @@ func (q *Queries) ListFinishedExecutionsBefore(ctx context.Context, finishedAt s
 			&i.ChangedFiles,
 			&i.CpuMs,
 			&i.MaxRssKb,
+			&i.NetworkDenied,
+			&i.AutoPulled,
 		); err != nil {
 			return nil, err
 		}
@@ -1289,7 +1297,7 @@ func (q *Queries) ListLiveSandboxes(ctx context.Context) ([]Sandbox, error) {
 }
 
 const listRunningExecutions = `-- name: ListRunningExecutions :many
-SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb FROM executions WHERE state IN ('queued', 'running')
+SELECT id, sandbox_id, seq_in_sandbox, idempotency_key, command, cwd, env_keys, tty, background, timeout_s, state, reason, exit_code, signal, oom_killed, timed_out, started_at, finished_at, duration_ms, stdout_path, stderr_path, stdout_bytes, stderr_bytes, last_seq_acked, changed_files, cpu_ms, max_rss_kb, network_denied, auto_pulled FROM executions WHERE state IN ('queued', 'running')
 `
 
 func (q *Queries) ListRunningExecutions(ctx context.Context) ([]Execution, error) {
@@ -1329,6 +1337,8 @@ func (q *Queries) ListRunningExecutions(ctx context.Context) ([]Execution, error
 			&i.ChangedFiles,
 			&i.CpuMs,
 			&i.MaxRssKb,
+			&i.NetworkDenied,
+			&i.AutoPulled,
 		); err != nil {
 			return nil, err
 		}
@@ -1702,6 +1712,21 @@ func (q *Queries) SetExecutionChangedFiles(ctx context.Context, arg SetExecution
 	return err
 }
 
+const setExecutionExtras = `-- name: SetExecutionExtras :exec
+UPDATE executions SET network_denied = ?, auto_pulled = ? WHERE id = ?
+`
+
+type SetExecutionExtrasParams struct {
+	NetworkDenied string `json:"network_denied"`
+	AutoPulled    string `json:"auto_pulled"`
+	ID            string `json:"id"`
+}
+
+func (q *Queries) SetExecutionExtras(ctx context.Context, arg SetExecutionExtrasParams) error {
+	_, err := q.db.ExecContext(ctx, setExecutionExtras, arg.NetworkDenied, arg.AutoPulled, arg.ID)
+	return err
+}
+
 const setSandboxDestroyed = `-- name: SetSandboxDestroyed :exec
 UPDATE sandboxes SET state = 'destroyed', state_reason = ?, destroyed_at = ? WHERE id = ?
 `
@@ -1871,6 +1896,35 @@ func (q *Queries) UpdateExecutionProgress(ctx context.Context, arg UpdateExecuti
 		arg.LastSeqAcked,
 		arg.ID,
 	)
+	return err
+}
+
+const updateSandboxMetadata = `-- name: UpdateSandboxMetadata :exec
+UPDATE sandboxes SET metadata = ? WHERE id = ?
+`
+
+type UpdateSandboxMetadataParams struct {
+	Metadata string `json:"metadata"`
+	ID       string `json:"id"`
+}
+
+func (q *Queries) UpdateSandboxMetadata(ctx context.Context, arg UpdateSandboxMetadataParams) error {
+	_, err := q.db.ExecContext(ctx, updateSandboxMetadata, arg.Metadata, arg.ID)
+	return err
+}
+
+const updateSandboxNetwork = `-- name: UpdateSandboxNetwork :exec
+UPDATE sandboxes SET network_mode = ?, network_policy = ? WHERE id = ?
+`
+
+type UpdateSandboxNetworkParams struct {
+	NetworkMode   string `json:"network_mode"`
+	NetworkPolicy string `json:"network_policy"`
+	ID            string `json:"id"`
+}
+
+func (q *Queries) UpdateSandboxNetwork(ctx context.Context, arg UpdateSandboxNetworkParams) error {
+	_, err := q.db.ExecContext(ctx, updateSandboxNetwork, arg.NetworkMode, arg.NetworkPolicy, arg.ID)
 	return err
 }
 
