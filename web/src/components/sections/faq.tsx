@@ -42,7 +42,7 @@ export function Faq() {
   return (
     <Section id="faq" labelledBy="faq-title">
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:gap-16">
-        <SectionHeader id="faq-title" eyebrow="08 · FAQ" title="Questions" lead="Short answers. The README has the rest." />
+        <SectionHeader id="faq-title" eyebrow="04 · FAQ" title="Questions" lead="Short answers. The README has the rest." />
         <div data-reveal>
           <Accordion type="single" collapsible defaultValue="q0">
             {FAQ.map((f, i) => (

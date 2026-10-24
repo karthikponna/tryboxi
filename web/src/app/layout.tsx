@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Funnel_Display, IBM_Plex_Mono, Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { site } from "@/site.config";
 import "./globals.css";
 
@@ -67,7 +66,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`dark ${display.variable} ${sans.variable} ${mono.variable}`}
     >
       <body className="bg-bg text-fg">
-        <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        {children}
         <Analytics />
       </body>
     </html>

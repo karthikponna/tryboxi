@@ -1,34 +1,23 @@
 import { InstallBox } from "@/components/ui/install-box";
-import { BoxField } from "./box-field";
-import { StaticFrame } from "./static-frame";
+import { HeroDither } from "./hero-dither";
+import { MacScene } from "./mac-scene";
 
 export function Hero() {
   return (
-    <section aria-labelledby="hero-title" className="relative overflow-hidden md:min-h-[800px]">
-      <div className="pointer-events-none relative z-10 mx-auto max-w-[1200px] px-4 pt-[120px] sm:px-6 md:pt-[152px] md:pb-[128px]">
-        <div id="hero-copy" className="pointer-events-auto w-full md:max-w-[440px] lg:max-w-[560px]">
+    <section aria-labelledby="hero-title" className="relative overflow-hidden bg-black">
+      <HeroDither />
+      <div className="relative mx-auto grid max-w-[1200px] grid-cols-1 items-center gap-6 px-4 pt-[120px] pb-16 sm:px-6 lg:min-h-[720px] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-8 lg:pt-[112px] lg:pb-20">
+        <div className="w-full max-w-[560px]">
           <h1
             id="hero-title"
             className="font-display text-[40px] leading-[1.02] font-medium tracking-[-0.035em] md:text-[52px] lg:text-[64px]"
           >
             Disposable microVMs for your agents. On your machine.
-            <span aria-hidden="true" className="bx-caret ml-[0.06em] font-mono font-normal">
-              ▍
-            </span>
           </h1>
-          <p className="mt-6 max-w-[520px] text-[17px] leading-[1.5] tracking-[-0.01em] text-fg-muted lg:text-[19px]">
-            Give Cursor, Claude Code, and your own agents a real Linux machine to run tests, installs, servers, and
-            untrusted code. Your files and secrets stay out of reach.
-          </p>
-          <InstallBox id="install" className="mt-9" />
-          <p className="mt-5 font-mono text-[12.5px] leading-[1.5] text-fg-dim">
-            Works with Cursor · Claude Code · Codex · any HTTP client
-          </p>
+          <InstallBox id="install" className="mt-10" />
         </div>
+        <MacScene className="aspect-[5/4] w-full lg:aspect-auto lg:h-[560px]" />
       </div>
-      <BoxField>
-        <StaticFrame />
-      </BoxField>
     </section>
   );
 }

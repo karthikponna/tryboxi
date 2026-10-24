@@ -13,17 +13,9 @@ export const site = {
     owner: "karthikponna",
     name: "tryboxi",
     url: repoUrl,
-    api: "https://api.github.com/repos/karthikponna/tryboxi",
   },
-  links: {
-    docs: `${repoUrl}#readme`,
-    testing: `${repoUrl}/blob/main/docs/TESTING.md`,
-    openapi: `${repoUrl}/blob/main/api/openapi.yaml`,
-    goSdk: `${repoUrl}/tree/main/pkg/client`,
-    examples: `${repoUrl}/tree/main/examples`,
-    agentRules: `${repoUrl}/tree/main/agent-rules`,
-    grafana: `${repoUrl}/tree/main/deploy/observability`,
-    issues: `${repoUrl}/issues`,
+  social: {
+    x: "https://x.com/karthikponna19",
   },
   install: {
     macos: [
@@ -31,9 +23,5 @@ export const site = {
       "./_out/bin/sandboxd install --artifacts _out",
       "./_out/bin/sandboxctl mcp install cursor --project <your-repo>",
     ],
-    linux: null,
-    windows: null,
   },
 } as const;
-
-export type InstallOs = keyof typeof site.install;

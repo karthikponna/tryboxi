@@ -22,19 +22,3 @@ export const ARCH = [
   "          egress proxy ──▶ allowlisted hosts",
   "          secrets swapped in · LAN blocked",
 ];
-
-export const REMOTE = [
-  "┌────────────────────┐",
-  "│ phone · laptop     │",
-  "└─────────┬──────────┘",
-  "          │ tailscale",
-  "          ▼",
-  "┌────────────────────────────┐",
-  "│ mac mini at home           │",
-  "│ your agent · sandboxd      │",
-  "│                            │",
-  "│ ┌───────┐ ┌───────┐        │",
-  "│ │sbx_7f3│ │sbx_2c9│        │",
-  "│ └───────┘ └───────┘        │",
-  "└────────────────────────────┘",
-];

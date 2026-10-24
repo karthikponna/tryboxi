@@ -1,82 +1,27 @@
-import { BoxFrame } from "@/components/ui/box-frame";
-import { Logo } from "@/components/ui/logo";
+import { GitHubIcon, XIcon } from "@/components/ui/brand-icons";
 import { site } from "@/site.config";
+import { FooterForest } from "./footer-forest";
 
-const COLUMNS: { title: string; links: { label: string; href: string }[] }[] = [
-  {
-    title: "Product",
-    links: [
-      { label: "Isolation", href: "#features" },
-      { label: "Architecture", href: "#how-it-works" },
-      { label: "Speed", href: "#speed" },
-      { label: "Safety model", href: "#safety" },
-      { label: "FAQ", href: "#faq" },
-    ],
-  },
-  {
-    title: "Developers",
-    links: [
-      { label: "README", href: site.links.docs },
-      { label: "Testing guide", href: site.links.testing },
-      { label: "HTTP API", href: site.links.openapi },
-      { label: "Go SDK", href: site.links.goSdk },
-      { label: "Examples", href: site.links.examples },
-    ],
-  },
-  {
-    title: "Project",
-    links: [
-      { label: "GitHub", href: site.repo.url },
-      { label: "Issues", href: site.links.issues },
-      { label: "Agent rules", href: site.links.agentRules },
-      { label: "Grafana dashboard", href: site.links.grafana },
-    ],
-  },
-];
+const link =
+  "rounded-[6px] p-1 text-[rgb(226_150_105/0.7)] transition-colors duration-150 hover:text-[#f0a070] focus-visible:outline-[#e27a38]";
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-line">
-      <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-12 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] lg:py-20">
-        <BoxFrame
-          caption="boxi · local"
-          command="sandboxd version"
-          caret
-          status={{ label: "your mac", tone: "running" }}
-          className="max-w-[360px]"
-        >
-          <div className="px-4 py-5">
-            <Logo />
-            <p className="mt-3 text-[14px] leading-[1.6] text-fg-muted">Disposable microVMs for your agents.</p>
-          </div>
-        </BoxFrame>
-        <nav aria-label="Footer" className="grid grid-cols-2 gap-8 sm:grid-cols-3">
-          {COLUMNS.map((col) => (
-            <div key={col.title}>
-              <h2 className="font-mono text-[11.5px] leading-none font-medium tracking-[0.12em] text-fg-dim uppercase">
-                {col.title}
-              </h2>
-              <ul className="mt-5 grid gap-1">
-                {col.links.map((l) => (
-                  <li key={l.label}>
-                    <a
-                      href={l.href}
-                      className="inline-block py-1 font-mono text-[13px] leading-[1.5] text-fg-muted transition-colors duration-150 hover:text-fg"
-                    >
-                      {l.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+    <footer className="relative h-[480px] overflow-hidden border-t border-line bg-[#070504] sm:h-[560px] lg:h-[640px]">
+      <FooterForest />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(to_bottom,rgb(0_0_0/0.28)_0_1px,transparent_1px_3px)]"
+      />
+      <div className="relative mx-auto max-w-[1200px] px-4 pt-8 sm:px-6">
+        <nav aria-label="Social" className="-ml-1 flex items-center gap-3">
+          <a href={site.repo.url} aria-label="boxi on GitHub" className={link}>
+            <GitHubIcon className="size-5" />
+          </a>
+          <a href={site.social.x} aria-label="Karthik Ponna on X" className={link}>
+            <XIcon className="size-[18px]" />
+          </a>
         </nav>
-      </div>
-      <div className="border-t border-line">
-        <div className="mx-auto flex max-w-[1200px] flex-col gap-2 px-4 py-6 font-mono text-[12px] leading-[1.5] text-fg-dim sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <p>Open source · runs on your machine · $0 cloud bill</p>
-          <p>{site.url.replace("https://", "")}</p>
-        </div>
       </div>
     </footer>
   );

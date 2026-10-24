@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
@@ -217,11 +216,4 @@ html {
 [data-stream="shown"] .bx-bar {
   transition: transform 320ms var(--bx-ease-out);
   transition-delay: calc(var(--i, 0) * 40ms);
-}
-
-/* the box field: desktop fades the scene out under the copy column */
-@media (min-width: 768px) {
-  .bx-scene-mask {
-    mask-image: linear-gradient(90deg, transparent 0%, #000 38%);
-  }
 }

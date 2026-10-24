@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
-import type { Status } from "@/components/ui/status-chip";
+
+type Status = "running" | "paused" | "stopped" | "blocked";
 
 const dot: Record<Status, string> = {
   running: "bg-green",
