@@ -1,27 +1,24 @@
+import { EmberRule } from "@/components/ui/ember-rule";
 import { cn } from "@/lib/utils";
+
+export function Accent({ children }: { children: React.ReactNode }) {
+  return <span className="text-orange">{children}</span>;
+}
 
 export function SectionHeader({
   id,
-  eyebrow,
   title,
   lead,
   className,
 }: {
   id: string;
-  eyebrow: string;
   title: React.ReactNode;
   lead?: React.ReactNode;
   className?: string;
 }) {
   return (
     <header className={cn("max-w-[640px]", className)} data-reveal>
-      <p className="font-mono text-[11.5px] leading-none font-medium tracking-[0.12em] text-green uppercase">
-        {eyebrow}
-      </p>
-      <h2
-        id={id}
-        className="mt-4 font-display text-[32px] leading-[1.06] tracking-[-0.03em] lg:text-[44px]"
-      >
+      <h2 id={id} className="font-display text-[32px] leading-[1.06] tracking-[-0.03em] lg:text-[44px]">
         {title}
       </h2>
       {lead && (
@@ -48,9 +45,10 @@ export function Section({
     <section
       id={id}
       aria-labelledby={labelledBy}
-      className={cn("border-t border-line py-[72px] lg:py-[120px]", className)}
+      className={cn("bx-section relative border-t border-line py-[72px] lg:py-[120px]", className)}
     >
-      <div className="mx-auto max-w-[1200px] px-4 sm:px-6">{children}</div>
+      <EmberRule />
+      <div className="relative mx-auto max-w-[1200px] px-4 sm:px-6">{children}</div>
     </section>
   );
 }

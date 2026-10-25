@@ -1,6 +1,6 @@
 import { AsciiDiagram } from "@/components/ui/ascii-diagram";
 import { BoxFrame } from "@/components/ui/box-frame";
-import { Section, SectionHeader } from "@/components/ui/section-header";
+import { Accent, Section, SectionHeader } from "@/components/ui/section-header";
 import { ARCH } from "./diagram";
 
 const STEPS = [
@@ -14,8 +14,11 @@ export function HowItWorks() {
     <Section id="how-it-works" labelledBy="how-title">
       <SectionHeader
         id="how-title"
-        eyebrow="01 · Architecture"
-        title="One daemon on your Mac, one microVM per agent"
+        title={
+          <>
+            One daemon on your Mac, <Accent>one microVM per agent</Accent>
+          </>
+        }
         lead="Your agent talks to sandboxd. sandboxd runs every sandbox as its own microVM."
       />
       <div className="mt-12 grid grid-cols-1 items-center gap-10 lg:mt-16 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:gap-16">
@@ -31,10 +34,10 @@ export function HowItWorks() {
             </p>
           </BoxFrame>
         </div>
-        <ol className="grid gap-10" data-reveal>
+        <ol className="grid border-t border-line" data-reveal>
           {STEPS.map((s, i) => (
-            <li key={s.title} className="flex gap-5">
-              <span className="font-display text-[40px] leading-none tracking-[-0.03em] text-fg-dim">
+            <li key={s.title} className="group flex gap-5 border-b border-line py-6 transition-colors hover:bg-orange-tint/40 sm:px-2">
+              <span className="font-display text-[40px] leading-none tracking-[-0.03em] text-orange">
                 {String(i + 1).padStart(2, "0")}
               </span>
               <div className="pt-1">

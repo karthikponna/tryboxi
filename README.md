@@ -1,24 +1,28 @@
-# boxi · tryboxi / sandboxd
+<p align="center">
+  <a href="https://tryboxi.xyz">
+    <img src="web/public/logo.svg" alt="tryboxi logo" width="96" />
+  </a>
+</p>
 
-**Disposable Linux microVMs on your own machine, for AI agents.**
+<h1 align="center">
+  <a href="https://tryboxi.xyz">tryboxi</a>
+</h1>
 
-Create a sandbox, run commands, read stdout / stderr / exit code, throw it away.
-Think "E2B, but on your computer": code never leaves the machine and it costs $0.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-e27a38" alt="License: MIT" /></a>
+  <a href="https://tryboxi.xyz"><img src="https://img.shields.io/badge/website-tryboxi.xyz-e27a38" alt="Website: tryboxi.xyz" /></a>
+</p>
 
-- [Highlights](#highlights)
-- [Platform support](#platform-support)
-- [Performance](#performance)
-- [Quick start](#quick-start)
-- [Connect your agent (MCP)](#connect-your-agent-mcp)
-- [Use it from your own code](#use-it-from-your-own-code)
-- [CLI reference](#cli-reference)
-- [How it works](#how-it-works)
-- [Data safety](#data-safety)
-- [Repository layout](#repository-layout)
-- [Development](#development)
-- [Status](#status)
+<p align="center">
+  <b>Disposable Linux microVMs on your own machine, for AI agents.</b>
+</p>
 
-## Highlights
+<p align="center">
+  Create a sandbox, run commands, read stdout / stderr / exit code, throw it away.<br />
+  Think "E2B, but on your computer": code never leaves the machine and it costs $0.
+</p>
+
+## Intro
 
 - **A real Linux machine per agent.** Each sandbox is an Ubuntu 24.04 microVM with its own kernel.
 - **Your repo goes in one way.** Changes come back only through `diff` / `apply` / `pull`, with a backup and `undo`.
@@ -27,6 +31,74 @@ Think "E2B, but on your computer": code never leaves the machine and it costs $0
 - **Fast.** Warm pool, golden snapshots, pause to disk, fork, and restore.
 - **Works with Cursor, Claude Code, and Codex** over MCP, or with anything that speaks HTTP.
 - **Observable.** Prometheus metrics, OpenTelemetry traces, and a Grafana dashboard.
+
+## Project Structure
+
+```text
+tryboxi/
+├── cmd/                     # entry points
+│   ├── sandboxd/            # host daemon
+│   ├── sandboxctl/          # CLI (incl. `mcp install`)
+│   ├── sandbox-mcp/         # MCP stdio adapter
+│   └── sandbox-agent/       # guest agent, PID 1 in every VM
+├── guest/                   # code that runs inside the VM
+│   ├── initd/               # initramfs switch_root and mounts
+│   ├── proc/                # PID 1 reaper
+│   ├── execd/               # exec, PTY, timeouts
+│   ├── spool/               # unacked output spool
+│   ├── files/               # file reads and writes
+│   └── server/              # gRPC server over vsock
+├── internal/                # host-side packages
+│   ├── api/                 # HTTP router
+│   │   ├── middleware/      # peer creds, token, Origin/Host checks
+│   │   └── sse/             # server-sent events
+│   ├── service/             # use cases: create, exec, sync, diff, apply, pull, undo,
+│   │                        # snapshots, fork, restore, recover, warm pool, templates, GC
+│   ├── scheduler/           # vCPU / memory ledger, fair queue, memory pressure
+│   ├── vmm/                 # VM driver interface
+│   │   ├── vz/              # macOS Virtualization.framework
+│   │   └── firecracker/     # Linux Firecracker
+│   ├── network/             # egress control
+│   │   ├── policy/          # allow / deny engine
+│   │   ├── dns/             # policy-aware resolver
+│   │   ├── sniff/           # SNI / Host sniffing
+│   │   ├── egress/          # proxy, secret swap, git proxy
+│   │   ├── usernet/         # macOS gVisor userspace network
+│   │   └── linuxnet/        # Linux netns + nftables
+│   ├── workspace/           # delta sync, .git sanitizing, 3-way apply, pull, backup / undo
+│   ├── output/              # log files, ring buffers, SSE fan-out, ANSI cleanup, grep
+│   ├── store/               # SQLite (WAL) + migrations
+│   │   └── db/              # sqlc-generated queries
+│   ├── safefs/              # the only code path that deletes outside the data root
+│   ├── secrets/             # host-side secret storage
+│   ├── telemetry/           # metrics and tracing
+│   └── ...                  # backend, config, events, guestclient, ids, image, platform, version
+├── pkg/
+│   └── client/              # public Go SDK
+├── proto/guest/v1/          # guest.proto (host <-> guest contract)
+├── gen/guest/v1/            # generated gRPC code
+├── api/                     # openapi.yaml (HTTP contract)
+├── agent-rules/             # rule / skill text installed for harnesses
+├── migrations/              # SQL migrations
+├── queries/                 # sqlc queries
+├── images/base/             # base rootfs Dockerfile
+├── scripts/
+│   ├── images/              # kernel fetch, rootfs build
+│   └── dev/                 # Lima + dev loop
+├── deploy/
+│   ├── lima/                # nested-virt Lima VM for the Firecracker backend
+│   ├── observability/       # Prometheus + Grafana + Jaeger (docker compose)
+│   └── grafana/             # dashboard JSON
+├── examples/
+│   ├── go-harness/          # Go SDK example
+│   └── python-harness/      # stdlib Python over the socket
+├── test/
+│   ├── e2e/                 # real microVM tests
+│   ├── fixtures/            # sample repos
+│   └── spike/               # early experiments
+├── docs/                    # TESTING.md
+└── web/                     # tryboxi.xyz landing page (Next.js, bun)
+```
 
 ## Platform support
 
@@ -263,12 +335,33 @@ curl -s --unix-socket "$S" -X DELETE http://localhost/v1/sandboxes/$ID
 
 ## How it works
 
-```text
-Cursor / Claude Code / Codex --MCP stdio--> sandbox-mcp --HTTP/unix--> sandboxd
-Custom harness / Go SDK / curl ------------------------HTTP/unix or TCP--> sandboxd
-sandboxd --gRPC over vsock--> sandbox-agent (PID 1 in each microVM)
-sandboxd --per-VM userspace network (gVisor netstack) / netns proxy--> allowlisted hosts only
+```mermaid
+flowchart LR
+  subgraph clients["Your agents and code"]
+    agent["Cursor · Claude Code · Codex"]
+    own["Your harness · Go SDK · curl"]
+  end
+  mcp["sandbox-mcp<br/>MCP adapter"]
+  daemon["sandboxd<br/>host daemon"]
+  subgraph vms["One microVM per sandbox"]
+    a1["sandbox-agent<br/>PID 1"]
+    a2["sandbox-agent<br/>PID 1"]
+  end
+  net["Per-VM network<br/>gVisor netstack / netns proxy"]
+  hosts(("Allowlisted<br/>hosts only"))
+
+  agent -- "MCP over stdio" --> mcp
+  mcp -- "HTTP over unix socket" --> daemon
+  own -- "HTTP over unix socket or TCP" --> daemon
+  daemon -- "gRPC over vsock" --> a1
+  daemon -- "gRPC over vsock" --> a2
+  vms -- "all egress" --> net
+  net -- "allowlist" --> hosts
 ```
+
+Your agent never talks to a VM directly. It calls `sandboxd`, which boots or reuses a microVM, syncs your repo
+in, and runs the command through the guest agent. Every packet a VM sends goes through its own network
+stack and the egress policy, so only allowlisted hosts are reachable.
 
 | Binary | What it does |
 | --- | --- |
@@ -299,74 +392,6 @@ These rules are enforced in code:
 - **Egress is allowlist-only by default** (package registries, GitHub, Ubuntu mirrors). Host loopback, LAN, link-local/metadata, and CGNAT ranges are always blocked, and DNS answers pointing there are dropped.
 - **Uninstall keeps data** unless `--purge` is passed and confirmed. GC supports `--dry-run`, and every deletion is logged as an event.
 
-## Project Structure
-
-```text
-tryboxi/
-├── cmd/                     # entry points
-│   ├── sandboxd/            # host daemon
-│   ├── sandboxctl/          # CLI (incl. `mcp install`)
-│   ├── sandbox-mcp/         # MCP stdio adapter
-│   └── sandbox-agent/       # guest agent, PID 1 in every VM
-├── guest/                   # code that runs inside the VM
-│   ├── initd/               # initramfs switch_root and mounts
-│   ├── proc/                # PID 1 reaper
-│   ├── execd/               # exec, PTY, timeouts
-│   ├── spool/               # unacked output spool
-│   ├── files/               # file reads and writes
-│   └── server/              # gRPC server over vsock
-├── internal/                # host-side packages
-│   ├── api/                 # HTTP router
-│   │   ├── middleware/      # peer creds, token, Origin/Host checks
-│   │   └── sse/             # server-sent events
-│   ├── service/             # use cases: create, exec, sync, diff, apply, pull, undo,
-│   │                        # snapshots, fork, restore, recover, warm pool, templates, GC
-│   ├── scheduler/           # vCPU / memory ledger, fair queue, memory pressure
-│   ├── vmm/                 # VM driver interface
-│   │   ├── vz/              # macOS Virtualization.framework
-│   │   └── firecracker/     # Linux Firecracker
-│   ├── network/             # egress control
-│   │   ├── policy/          # allow / deny engine
-│   │   ├── dns/             # policy-aware resolver
-│   │   ├── sniff/           # SNI / Host sniffing
-│   │   ├── egress/          # proxy, secret swap, git proxy
-│   │   ├── usernet/         # macOS gVisor userspace network
-│   │   └── linuxnet/        # Linux netns + nftables
-│   ├── workspace/           # delta sync, .git sanitizing, 3-way apply, pull, backup / undo
-│   ├── output/              # log files, ring buffers, SSE fan-out, ANSI cleanup, grep
-│   ├── store/               # SQLite (WAL) + migrations
-│   │   └── db/              # sqlc-generated queries
-│   ├── safefs/              # the only code path that deletes outside the data root
-│   ├── secrets/             # host-side secret storage
-│   ├── telemetry/           # metrics and tracing
-│   └── ...                  # backend, config, events, guestclient, ids, image, platform, version
-├── pkg/
-│   └── client/              # public Go SDK
-├── proto/guest/v1/          # guest.proto (host <-> guest contract)
-├── gen/guest/v1/            # generated gRPC code
-├── api/                     # openapi.yaml (HTTP contract)
-├── agent-rules/             # rule / skill text installed for harnesses
-├── migrations/              # SQL migrations
-├── queries/                 # sqlc queries
-├── images/base/             # base rootfs Dockerfile
-├── scripts/
-│   ├── images/              # kernel fetch, rootfs build
-│   └── dev/                 # Lima + dev loop
-├── deploy/
-│   ├── lima/                # nested-virt Lima VM for the Firecracker backend
-│   ├── observability/       # Prometheus + Grafana + Jaeger (docker compose)
-│   └── grafana/             # dashboard JSON
-├── examples/
-│   ├── go-harness/          # Go SDK example
-│   └── python-harness/      # stdlib Python over the socket
-├── test/
-│   ├── e2e/                 # real microVM tests
-│   ├── fixtures/            # sample repos
-│   └── spike/               # early experiments
-├── docs/                    # TESTING.md
-└── web/                     # tryboxi.dev landing page (Next.js, bun)
-```
-
 ## Development
 
 | Command | What it does |
@@ -383,25 +408,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 The website lives in [`web/`](web): `cd web && bun install && bun run dev`.
 
-## Status
+## License
 
-**Done and verified with real VMs on macOS:** guest agent (PID 1, exec streaming with on-disk spool and
-re-attach, PTY, timeouts, OOM flag, files, diff, changes, heartbeat, time sync, RNG reseed, dead-man
-switch), vz driver with save/restore and APFS clones, golden snapshots per template and size, warm pool
-with EWMA sizing and eviction under pressure, pause-to-disk on idle and on daemon shutdown with
-transparent resume, checkpoint / fork / restore, lost-VM detection and rescue-VM recovery, egress policy
-(DNS + SNI/Host), port forwards, delta workspace sync, diff / apply / pull / undo, repo stack detection with
-background template builds, HTTP API + SSE + auth, Go SDK, CLI, MCP adapter, agent rules and
-`mcp install`, Prometheus metrics, events, GC, host-side secrets with placeholder injection and response
-scrubbing, git proxy (repo + push-branch rules), per-sandbox egress limits and allowed-connection logs,
-OpenTelemetry tracing, a Grafana dashboard, network presets (`@node`, `@docker`, `@browsers`, ...), a setup
-phase with open network followed by lockdown, live "allow this host" changes, blocked hosts reported in
-exec results, auto-pull of manifests / lockfiles, and Docker inside sandboxes.
-
-**Not done yet:**
-
-- Windows hosts have no backend (would need Hyper-V / WSL2).
-- The Linux backend is not exercised on real KVM yet; Firecracker runs without the jailer, so cgroup / seccomp confinement and daemon-restart reattach are still to do.
-- Templates from arbitrary OCI images are not implemented; templates are the base image plus install steps.
-- Python / TypeScript SDKs are not generated yet (see `examples/` for stdlib Python over the socket).
-- Battery-aware budgets, egress rate limits, and VMGenID are not implemented.
+This repository's source code is available under the [MIT License](LICENSE). You are free to clone, use,
+modify, and distribute it, including commercially, as long as the copyright notice is kept.

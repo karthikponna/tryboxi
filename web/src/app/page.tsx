@@ -5,6 +5,7 @@ import { HowItWorks } from "@/components/sections/how-it-works";
 import { SiteFooter } from "@/components/sections/site-footer";
 import { SiteHeader } from "@/components/sections/site-header";
 import { Speed } from "@/components/sections/speed";
+import { StructuredData } from "@/components/structured-data";
 import { RevealObserver } from "@/components/ui/reveal-observer";
 
 export default function Home() {
@@ -26,6 +27,7 @@ export default function Home() {
       </main>
       <SiteFooter />
       <RevealObserver />
+      <StructuredData />
     </>
   );
 }

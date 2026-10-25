@@ -1,6 +1,6 @@
-# tryboxi.dev
+# tryboxi.xyz
 
-The boxi landing page: Next.js (App Router), Tailwind CSS v4, shadcn/ui on Radix, three.js for the hero.
+The tryboxi landing page: Next.js (App Router), Tailwind CSS v4, shadcn/ui on Radix, three.js for the hero.
 
 ## Run
 

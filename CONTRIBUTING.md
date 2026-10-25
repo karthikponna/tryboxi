@@ -1,4 +1,4 @@
-# Contributing to boxi
+# Contributing to tryboxi
 
 Thanks for helping. This guide covers how to set up the project, make a change, and get it merged.
 
@@ -14,7 +14,7 @@ Thanks for helping. This guide covers how to set up the project, make a change, 
 
 ## Ground rules
 
-boxi runs untrusted code next to people's repos and credentials, so a few rules are not negotiable:
+tryboxi runs untrusted code next to people's repos and credentials, so a few rules are not negotiable:
 
 - **Never weaken the data-safety guarantees** listed in the [README](README.md#data-safety). Sync stays one-way, writes to the host go only through `apply` / `pull` with a backup, and secrets never enter a VM.
 - **All deletes outside the data root go through `internal/safefs`.** Do not call `os.RemoveAll` on paths you did not create.
@@ -109,7 +109,7 @@ Commit the regenerated files together with the source change.
 
 ## The website
 
-The landing page for tryboxi.dev lives in `web/` (Next.js, Tailwind CSS, bun).
+The landing page for tryboxi.xyz lives in `web/` (Next.js, Tailwind CSS, bun).
 
 ```bash
 cd web

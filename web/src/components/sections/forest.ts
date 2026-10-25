@@ -3,6 +3,8 @@
 
 export const CELL = 6;
 const LEVELS = 7;
+// glyph index for the "tryboxi" lettering, drawn past the sky's brightest level
+const TEXT = LEVELS;
 
 function rng(seed: number) {
   let s = seed >>> 0;
@@ -102,9 +104,55 @@ function pine(l: Layer, cx: number, base: number, h: number, w: number, v: numbe
   }
 }
 
-export type Forest = { cols: number; rows: number; sky: Float32Array; far: Layer; near: Layer };
+export type Forest = { cols: number; rows: number; sky: Float32Array; text: Float32Array; far: Layer; near: Layer };
 
-export function buildForest(width: number, height: number): Forest {
+// "tryboxi" rasterised at cell resolution: coverage 0..1 per cell, sitting on the forest floor.
+function lettering(cols: number, rows: number, ground: number, family: string) {
+  const c = document.createElement("canvas");
+  c.width = cols;
+  c.height = rows;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  const out = new Float32Array(cols * rows);
+  if (!g) return out;
+  const word = "tryboxi";
+  g.font = `800 100px ${family}`;
+  const m = g.measureText(word);
+  const ascent = m.actualBoundingBoxAscent || 72;
+  const descent = m.actualBoundingBoxDescent || 20;
+  const target = cols * (cols < 120 ? 0.9 : 0.74);
+  const size = Math.min((100 * target) / m.width, (100 * rows * 0.56) / (ascent + descent));
+  g.font = `800 ${size}px ${family}`;
+  g.textAlign = "center";
+  g.textBaseline = "alphabetic";
+  g.fillStyle = "#fff";
+  // the descender of "y" ends above the ground line, so the parallax floor never swallows it
+  g.fillText(word, cols / 2, ground - 8 - (descent * size) / 100);
+  const px = g.getImageData(0, 0, cols, rows).data;
+  for (let i = 0; i < out.length; i++) out[i] = px[i * 4 + 3] / 255;
+  return out;
+}
+
+// separable box blur, used to darken the sky in a soft band around the letters
+function blur(src: Float32Array, cols: number, rows: number, rad: number) {
+  const tmp = new Float32Array(src.length);
+  const out = new Float32Array(src.length);
+  const n = rad * 2 + 1;
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      let s = 0;
+      for (let k = -rad; k <= rad; k++) s += src[r * cols + Math.min(cols - 1, Math.max(0, c + k))];
+      tmp[r * cols + c] = s / n;
+    }
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      let s = 0;
+      for (let k = -rad; k <= rad; k++) s += tmp[Math.min(rows - 1, Math.max(0, r + k)) * cols + c];
+      out[r * cols + c] = s / n;
+    }
+  return out;
+}
+
+export function buildForest(width: number, height: number, family = "sans-serif"): Forest {
   const cols = Math.ceil(width / CELL);
   const rows = Math.ceil(height / CELL);
   const pad = 16;
@@ -124,6 +172,10 @@ export function buildForest(width: number, height: number): Forest {
       sky[r * cols + c] = Math.max(0, Math.min(1, s));
     }
   }
+
+  const text = lettering(cols, rows, ground, family);
+  const halo = blur(text, cols, rows, 3);
+  for (let i = 0; i < sky.length; i++) sky[i] *= 1 - Math.min(1, halo[i] * 1.6) * 0.7;
 
   // tree sizes are tuned for a 1440px-wide footer and shrink with it
   const k = Math.min(1, Math.max(0.3, cols / 240));
@@ -175,31 +227,61 @@ export function buildForest(width: number, height: number): Forest {
     const lip = ground - (noise(c * 0.2, 4.4) - 0.3) * 3;
     for (let r = Math.floor(lip); r < rows + pad; r++) fill(near, c, r, 1);
   }
-  return { cols, rows, sky, far, near };
+  return { cols, rows, sky, text, far, near };
 }
 
-// Intensity per cell after the two tree layers are offset for parallax.
-export function compose(f: Forest, farShift: number, nearShift: number, out: Uint8Array) {
-  const { cols, rows, sky, far, near } = f;
+function fbm3(x: number, y: number) {
+  return noise(x, y) * 0.57 + noise(x * 2.1, y * 2.1) * 0.29 + noise(x * 4.4, y * 4.4) * 0.14;
+}
+
+// Intensity per cell after the tree layers are offset for parallax. `t` (seconds) drives
+// the fire: a warped noise field streams right to left behind the trees, rising slightly.
+// The lettering sits between the sky and the trees, and wisps of smoke drift across it.
+export function compose(f: Forest, farShift: number, nearShift: number, t: number, out: Uint8Array) {
+  const { cols, rows, sky, text, far, near } = f;
   const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const drift = t * 0.42;
   for (let r = 0; r < rows; r++) {
     const fr = Math.min(far.rows - 1, Math.max(0, r + farShift));
     const nr = Math.min(near.rows - 1, Math.max(0, r + nearShift));
+    const v01 = r / rows;
+    const lift = smooth(0.25, 0.95, v01);
     for (let c = 0; c < cols; c++) {
-      let v = sky[r * cols + c];
-      v *= 1 - far.a[fr * cols + c] * 0.8;
-      v *= 1 - near.a[nr * cols + c];
-      const d = (bayer[(r & 3) * 4 + (c & 3)] / 16 - 0.5) / LEVELS;
-      out[r * cols + c] = Math.max(0, Math.min(LEVELS - 1, Math.round((v + d) * (LEVELS - 1))));
+      const i = r * cols + c;
+      const cover = near.a[nr * cols + c];
+      if (cover >= 1) {
+        out[i] = 0;
+        continue;
+      }
+      const warp = noise(c * 0.03 + drift * 1.6, r * 0.05 + t * 0.35);
+      const n = fbm3(c * 0.017 + drift, r * 0.075 + t * 0.22 + warp * 0.9);
+      const flame = smooth(0.36, 0.74, n);
+      const haze = far.a[fr * cols + c];
+      const b = bayer[(r & 3) * 4 + (c & 3)] / 16 - 0.5;
+      const m = text[i];
+      // the lettering stands in front of the hazy far trees, behind the near ones
+      if (m > 0 && cover <= 0) {
+        const smoke = smooth(0.56, 0.84, fbm3(c * 0.05 + drift * 1.3 + 17.3, r * 0.12 + t * 0.3 + warp * 0.7));
+        if (m * (1 - smoke * 0.9) > 0.5 + b * 0.6) {
+          out[i] = TEXT;
+          continue;
+        }
+      }
+      let v = sky[i] * (0.5 + flame * 0.8) + flame * lift * 0.22;
+      v *= 1 - haze * 0.8;
+      v *= 1 - cover;
+      const d = b / LEVELS;
+      out[i] = Math.max(0, Math.min(LEVELS - 1, Math.round((v + d) * (LEVELS - 1))));
     }
   }
 }
 
-// Glyph tiles, darkest to brightest: faint grid, dots, cross, double cross, shade, dot-matrix, solid.
+// Glyph tiles, darkest to brightest: faint grid, dots, cross, double cross, shade, dot-matrix, solid,
+// then the lettering's hot "#" glyph.
 export function glyphAtlas(dpr: number) {
   const s = CELL * dpr;
   const c = document.createElement("canvas");
-  c.width = s * LEVELS;
+  c.width = s * (LEVELS + 1);
   c.height = s;
   const g = c.getContext("2d")!;
   const px = (x: number, y: number, w: number, h: number, col: string) => {
@@ -225,5 +307,10 @@ export function glyphAtlas(dpr: number) {
   px(at(5) + 3, 1, 1, 1, "#8d4318");
   px(at(6), 0, 6, 6, "#e27a38");
   px(at(6) + 1, 1, 1, 1, "#b0561f");
+  px(at(TEXT), 0, 6, 6, "#ee8c50");
+  px(at(TEXT) + 1, 0, 1, 6, "#ffc596");
+  px(at(TEXT) + 4, 0, 1, 6, "#ffc596");
+  px(at(TEXT), 1, 6, 1, "#ffc596");
+  px(at(TEXT), 4, 6, 1, "#ffc596");
   return c;
 }

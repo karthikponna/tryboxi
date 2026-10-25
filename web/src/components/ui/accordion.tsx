@@ -18,7 +18,10 @@ function AccordionItem({ className, ...props }: React.ComponentProps<typeof Acco
   return (
     <AccordionPrimitive.Item
       data-slot="accordion-item"
-      className={cn("border-b border-line", className)}
+      className={cn(
+        "relative border-b border-line before:absolute before:top-0 before:bottom-0 before:-left-4 before:w-[3px] before:bg-orange before:opacity-0 before:transition-opacity data-[state=open]:before:opacity-100",
+        className,
+      )}
       {...props}
     />
   );
@@ -34,8 +37,8 @@ function AccordionTrigger({
       <AccordionPrimitive.Trigger
         data-slot="accordion-trigger"
         className={cn(
-          "group/acc flex flex-1 items-center justify-between gap-6 py-5 text-left font-display text-[19px] leading-[1.3] tracking-[-0.015em] text-fg transition-colors duration-150 outline-none hover:text-fg lg:text-[22px]",
-          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green",
+          "group/acc flex flex-1 items-center justify-between gap-6 py-5 text-left font-display text-[19px] leading-[1.3] tracking-[-0.015em] text-fg transition-colors duration-150 outline-none hover:text-orange-hover data-[state=open]:text-orange lg:text-[22px]",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange",
           className,
         )}
         {...props}
@@ -43,7 +46,7 @@ function AccordionTrigger({
         {children}
         <span
           aria-hidden="true"
-          className="w-4 shrink-0 text-center font-mono text-[15px] text-fg-dim transition-colors group-hover/acc:text-fg group-data-[state=open]/acc:text-green"
+          className="w-4 shrink-0 text-center font-mono text-[15px] text-orange transition-colors group-hover/acc:text-orange-hover"
         >
           <span className="group-data-[state=open]/acc:hidden">+</span>
           <span className="hidden group-data-[state=open]/acc:inline">−</span>

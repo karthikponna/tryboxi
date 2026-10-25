@@ -1,12 +1,13 @@
 import type { Line } from "@/components/ui/command-line";
+import { site } from "@/site.config";
 
 export type Snippet = {
   value: string;
   label: string;
-  caption: string;
-  footer: string;
   copy: string;
   copyLabel: string;
+  // "agent" tabs install MCP into a harness; "api" tabs call sandboxd directly
+  group: "agent" | "api";
 } & ({ kind: "shell"; lines: Line[] } | { kind: "code"; code: string });
 
 const PY = `import os
@@ -73,81 +74,74 @@ curl -s --unix-socket "$S" -X POST http://localhost/v1/sandboxes/$ID/exec \\
 
 curl -s --unix-socket "$S" -X DELETE http://localhost/v1/sandboxes/$ID`;
 
-const CURSOR = "sandboxctl mcp install cursor --project . --auto-pull";
-const CLAUDE = "sandboxctl mcp install claude --project .";
-const CODEX = "sandboxctl mcp install codex --project .";
+const { cursor: CURSOR, claude: CLAUDE, codex: CODEX } = site.install.mcp;
+const P = site.install.project;
 
 export const SNIPPETS: Snippet[] = [
   {
     value: "cursor",
+    group: "agent",
     label: "Cursor",
-    caption: "cursor · mcp",
     kind: "shell",
     lines: [
       { kind: "cmd", text: CURSOR },
-      { kind: "out", text: "wrote ~/code/app/.cursor/mcp.json" },
-      { kind: "out", text: "wrote ~/code/app/.cursor/rules/sandbox.mdc" },
+      { kind: "out", text: `wrote ${P}/.cursor/mcp.json` },
+      { kind: "out", text: `wrote ${P}/.cursor/rules/sandbox.mdc` },
       { kind: "out", text: "Next: open Cursor Settings -> MCP and enable the 'sandbox' server" },
     ],
-    footer: "sandboxctl events",
     copy: CURSOR,
     copyLabel: "Cursor install command",
   },
   {
     value: "claude",
+    group: "agent",
     label: "Claude Code",
-    caption: "claude code · mcp",
     kind: "shell",
     lines: [
       { kind: "cmd", text: CLAUDE },
-      { kind: "out", text: "wrote ~/code/app/.claude/skills/sandbox/SKILL.md" },
+      { kind: "out", text: `wrote ${P}/.claude/skills/sandbox/SKILL.md` },
       { kind: "out", text: "then runs: claude mcp add --scope project sandbox -- sandbox-mcp" },
     ],
-    footer: "sandboxctl events",
     copy: CLAUDE,
     copyLabel: "Claude Code install command",
   },
   {
     value: "codex",
+    group: "agent",
     label: "Codex",
-    caption: "codex · mcp",
     kind: "shell",
     lines: [
       { kind: "cmd", text: CODEX },
       { kind: "out", text: "updated ~/.codex/config.toml" },
-      { kind: "out", text: "wrote ~/code/app/AGENTS.md" },
+      { kind: "out", text: `wrote ${P}/AGENTS.md` },
     ],
-    footer: "sandboxctl events",
     copy: CODEX,
     copyLabel: "Codex install command",
   },
   {
     value: "python",
+    group: "api",
     label: "Python",
-    caption: "harness.py · httpx over the unix socket",
     kind: "code",
     code: PY,
-    footer: "python3 harness.py",
     copy: PY,
     copyLabel: "Python example",
   },
   {
     value: "go",
+    group: "api",
     label: "Go",
-    caption: "main.go · pkg/client",
     kind: "code",
     code: GO,
-    footer: "go run .",
     copy: GO,
     copyLabel: "Go example",
   },
   {
     value: "curl",
+    group: "api",
     label: "curl",
-    caption: "curl · HTTP on the unix socket",
     kind: "code",
     code: CURL,
-    footer: 'curl -N --unix-socket "$S" http://localhost/v1/events',
     copy: CURL,
     copyLabel: "curl example",
   },

@@ -15,7 +15,7 @@ export function SiteFooter() {
       />
       <div className="relative mx-auto max-w-[1200px] px-4 pt-8 sm:px-6">
         <nav aria-label="Social" className="-ml-1 flex items-center gap-3">
-          <a href={site.repo.url} aria-label="boxi on GitHub" className={link}>
+          <a href={site.repo.url} aria-label="tryboxi on GitHub" className={link}>
             <GitHubIcon className="size-5" />
           </a>
           <a href={site.social.x} aria-label="Karthik Ponna on X" className={link}>

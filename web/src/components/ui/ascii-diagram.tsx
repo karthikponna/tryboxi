@@ -9,9 +9,9 @@ const TRIANGLES: Record<number, { stub: Prim; points: string }> = {
   0x25b6: { stub: R(0, 6.5, 2, 1), points: "1.5,3.5 6.5,7 1.5,10.5" }, // ▶
 };
 
-const LINE = "rgba(242,246,240,0.38)";
-const NAME = "#f2f6f0";
-const LABEL = "rgba(242,246,240,0.64)";
+const LINE = "rgba(226,122,56,0.75)";
+const NAME = "#f8f1ea";
+const LABEL = "rgba(248,241,234,0.66)";
 const NAMES = /(sandbox-mcp|sandboxd|sbx_[0-9a-f]{3}|egress proxy|mac mini at home)/g;
 
 function colors(line: string) {

@@ -7,32 +7,32 @@ function Row({ line }: { line: Line }) {
     case "cmd":
       return (
         <>
-          <span className="text-fg-dim select-none">$ </span>
-          <span className="text-fg">{line.text}</span>
+          <span className="mr-3 text-kiln-muted select-none">$</span>
+          <span className="text-white">{line.text}</span>
         </>
       );
     case "ok":
       return (
         <>
-          <span className="text-green">✓ </span>
-          <span className="text-fg">{line.text}</span>
+          <span className="text-kiln-muted">✓ </span>
+          <span className="text-white">{line.text}</span>
         </>
       );
     case "err":
       return (
         <>
           <span className="text-red">✗ </span>
-          <span className="text-fg">{line.text}</span>
+          <span className="text-white">{line.text}</span>
         </>
       );
     default:
-      return <span className="text-fg-muted">{line.text}</span>;
+      return <span className="text-kiln-text/85">{line.text}</span>;
   }
 }
 
 export function CommandLine({ lines, className }: { lines: Line[]; className?: string }) {
   return (
-    <div data-stream className={cn("px-4 py-3 font-mono text-[12.5px] leading-[1.6]", className)}>
+    <div data-stream className={cn("font-mono text-[14px] leading-[1.75]", className)}>
       {lines.map((line, i) => (
         <div key={i} className="bx-line whitespace-pre" style={{ "--i": i } as React.CSSProperties}>
           <Row line={line} />

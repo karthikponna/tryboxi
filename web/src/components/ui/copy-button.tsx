@@ -37,8 +37,8 @@ export function CopyButton({
       }}
       aria-label={copied ? `${label} copied` : `Copy ${label}`}
       className={cn(
-        "inline-flex h-7 shrink-0 items-center rounded-[6px] border border-line px-2.5 font-mono text-[12px] leading-none transition-colors duration-150 hover:border-line-strong hover:bg-panel-2",
-        copied ? "text-green" : "text-fg-muted hover:text-fg",
+        "inline-flex h-6 shrink-0 items-center px-1 font-mono text-[14px] leading-none transition-colors duration-150",
+        copied ? "text-kiln-text" : "text-kiln-muted hover:text-kiln-text",
         className,
       )}
     >

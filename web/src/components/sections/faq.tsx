@@ -1,7 +1,7 @@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Section, SectionHeader } from "@/components/ui/section-header";
 
-const code = "font-mono text-[0.9em] text-fg";
+const code = "font-mono text-[0.9em] text-orange-hover";
 
 const FAQ: { q: string; a: React.ReactNode }[] = [
   {
@@ -26,7 +26,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "Is it free?",
-    a: "Yes. boxi is open source and runs on your own hardware, so there is no cloud bill.",
+    a: "Yes. tryboxi is open source under the MIT license and runs on your own hardware, so there is no cloud bill.",
   },
   {
     q: "Does my code leave my machine?",
@@ -42,7 +42,7 @@ export function Faq() {
   return (
     <Section id="faq" labelledBy="faq-title">
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:gap-16">
-        <SectionHeader id="faq-title" eyebrow="04 · FAQ" title="Questions" lead="Short answers. The README has the rest." />
+        <SectionHeader id="faq-title" title="FAQs" />
         <div data-reveal>
           <Accordion type="single" collapsible defaultValue="q0">
             {FAQ.map((f, i) => (

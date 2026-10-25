@@ -81,7 +81,7 @@ export function MacScene({ className }: { className?: string }) {
         aria-label="iMac and Mac mini running sandbox microVMs. Press Enter to start another microVM."
         onKeyDown={onKey}
         className={cn(
-          "absolute inset-0 rounded-[10px] opacity-0 transition-opacity duration-700 ease-(--bx-ease-out) outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-green",
+          "absolute inset-0 rounded-[10px] opacity-0 transition-opacity duration-700 ease-(--bx-ease-out) outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange",
           ready && "opacity-100",
         )}
       />

@@ -1,15 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
+import { LOGO_PATH } from "@/components/ui/logo";
 
 export const ogSize = { width: 1200, height: 630 };
-export const ogAlt = "boxi: disposable microVMs for your agents, on your machine";
+export const ogAlt = "tryboxi: disposable microVMs for your agents, on your machine";
 
-const GREEN = "#3ee38d";
-const LINE = "rgba(226,240,230,0.18)";
-const DIM = "rgba(242,246,240,0.38)";
-const MUTED = "rgba(242,246,240,0.64)";
-const FG = "#f2f6f0";
+const ORANGE = "#e27a38";
+const LINE = "rgba(255,200,160,0.18)";
+const DIM = "rgba(248,241,234,0.38)";
+const MUTED = "rgba(248,241,234,0.64)";
+const FG = "#f8f1ea";
 
 function Corners({ size = 12, color = LINE }: { size?: number; color?: string }) {
   const line = `1px solid ${color}`;
@@ -46,15 +47,15 @@ function MiniBox({
         display: "flex",
         flexDirection: "column",
         width: 290,
-        border: `1px solid rgba(226,240,230,0.12)`,
+        border: `1px solid rgba(255,200,160,0.12)`,
         borderRadius: 10,
-        background: "#0b0e0c",
+        background: "#120c09",
         fontFamily: "Plex",
         fontSize: 17,
       }}
     >
       <Corners />
-      <div style={{ display: "flex", padding: "10px 16px", borderBottom: "1px solid rgba(226,240,230,0.1)", color: FG }}>
+      <div style={{ display: "flex", padding: "10px 16px", borderBottom: "1px solid rgba(255,200,160,0.1)", color: FG }}>
         {title}
       </div>
       <div style={{ display: "flex", flexDirection: "column", padding: "12px 16px", gap: 4 }}>
@@ -87,24 +88,17 @@ export function renderOg() {
           height: "100%",
           display: "flex",
           position: "relative",
-          background: "#060807",
-          backgroundImage: "radial-gradient(circle at 78% 58%, rgba(62,227,141,0.20), rgba(6,8,7,0) 52%)",
+          background: "#090605",
+          backgroundImage: "radial-gradient(circle at 78% 58%, rgba(226,122,56,0.20), rgba(6,8,7,0) 52%)",
           padding: 64,
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", width: 680 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <svg width="40" height="40" viewBox="0 0 20 20">
-              <path
-                d="M 13.5 2.75 L 2.75 2.75 L 2.75 17.25 L 17.25 17.25 L 17.25 6.5"
-                fill="none"
-                stroke={FG}
-                strokeWidth="1.5"
-                strokeLinecap="square"
-              />
-              <rect x="15.25" y="0.75" width="4" height="4" fill={GREEN} />
+            <svg width="46" height="40" viewBox="0 0 30 26">
+              <path d={LOGO_PATH} fill={ORANGE} />
             </svg>
-            <div style={{ fontFamily: "Funnel", fontSize: 44, color: FG, letterSpacing: "-0.02em" }}>boxi</div>
+            <div style={{ fontFamily: "Funnel", fontSize: 44, color: FG, letterSpacing: "-0.02em" }}>tryboxi</div>
           </div>
           <div
             style={{
@@ -121,7 +115,7 @@ export function renderOg() {
             <div style={{ display: "flex" }}>for your agents. On</div>
             <div style={{ display: "flex", alignItems: "center" }}>
               your machine.
-              <div style={{ width: 20, height: 56, background: GREEN, marginLeft: 10, marginTop: 6 }} />
+              <div style={{ width: 20, height: 56, background: ORANGE, marginLeft: 10, marginTop: 6 }} />
             </div>
           </div>
           <div style={{ display: "flex", fontFamily: "Plex", fontSize: 22, color: MUTED, gap: 18 }}>
@@ -142,7 +136,7 @@ export function renderOg() {
             gap: 20,
           }}
         >
-          <MiniBox title="sbx_7f3" cmd="npm test" out="12 passed" outColor={GREEN} status="running" statusColor={GREEN} />
+          <MiniBox title="sbx_7f3" cmd="npm test" out="12 passed" outColor={ORANGE} status="running" statusColor={ORANGE} />
           <div style={{ display: "flex", marginLeft: 60 }}>
             <MiniBox
               title="sbx_2c9"
@@ -153,7 +147,7 @@ export function renderOg() {
               statusColor="#f2b94b"
             />
           </div>
-          <MiniBox title="sbx_e41" cmd="curl evil.example" out="blocked" outColor="#ff6b6b" status="running" statusColor={GREEN} />
+          <MiniBox title="sbx_e41" cmd="curl evil.example" out="blocked" outColor="#ff6b6b" status="running" statusColor={ORANGE} />
         </div>
       </div>
     ),

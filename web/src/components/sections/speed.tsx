@@ -1,4 +1,4 @@
-import { Section, SectionHeader } from "@/components/ui/section-header";
+import { Accent, Section, SectionHeader } from "@/components/ui/section-header";
 import { StatRow } from "@/components/ui/stat-row";
 
 export function Speed() {
@@ -6,8 +6,11 @@ export function Speed() {
     <Section id="speed" labelledBy="speed-title">
       <SectionHeader
         id="speed-title"
-        eyebrow="02 · Speed"
-        title="Fast enough to throw one away"
+        title={
+          <>
+            Fast enough to <Accent>throw one away</Accent>
+          </>
+        }
         lead="Agents start fresh as often as they like. A new sandbox costs milliseconds, not a minute of setup."
       />
       <StatRow

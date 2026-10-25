@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 type Status = "running" | "paused" | "stopped" | "blocked";
 
 const dot: Record<Status, string> = {
-  running: "bg-green",
+  running: "bg-orange",
   paused: "bg-amber",
   stopped: "bg-fg-dim",
   blocked: "bg-red",
@@ -20,7 +20,7 @@ type BoxFrameProps = {
 };
 
 const corner =
-  "pointer-events-none absolute font-mono text-[13px] leading-none text-line-strong select-none";
+  "pointer-events-none absolute font-mono text-[13px] leading-none text-orange select-none";
 
 export function BoxCorners() {
   return (
@@ -55,7 +55,7 @@ export function BoxFrame({
       <div className={cn("relative overflow-hidden", bodyClassName)}>{children}</div>
       {command && (
         <div className="bx-scroll overflow-x-auto border-t border-line px-4 py-2.5 font-mono text-[12.5px] leading-[1.4] whitespace-nowrap">
-          <span className="text-fg-dim">$ </span>
+          <span className="text-orange">$ </span>
           <span className="text-fg">{command}</span>
           {caret && (
             <span aria-hidden="true" className="bx-caret ml-0.5">

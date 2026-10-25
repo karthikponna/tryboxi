@@ -184,42 +184,66 @@ export class Screen {
 
   draw() {
     const c = this.ctx;
-    const g = c.createLinearGradient(0, 0, 0, SCREEN_H);
-    g.addColorStop(0, "#07100b");
-    g.addColorStop(1, "#030504");
-    c.fillStyle = g;
-    c.fillRect(0, 0, SCREEN_W, SCREEN_H);
-    const glow = c.createRadialGradient(SCREEN_W * 0.72, SCREEN_H * 0.95, 0, SCREEN_W * 0.72, SCREEN_H * 0.95, SCREEN_W * 0.7);
-    glow.addColorStop(0, "rgba(62,227,141,0.22)");
-    glow.addColorStop(1, "rgba(62,227,141,0)");
-    c.fillStyle = glow;
-    c.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    c.drawImage(this.wallpaper(), 0, 0);
 
     c.fillStyle = "rgba(0,0,0,0.55)";
     c.fillRect(0, 0, SCREEN_W, MENU_H);
     c.textBaseline = "middle";
     c.font = `600 15px ${this.sans}`;
-    c.fillStyle = "#f2f6f0";
-    c.fillText("boxi", 18, MENU_H / 2 + 1);
+    c.fillStyle = "#f8f1ea";
+    c.fillText("tryboxi", 18, MENU_H / 2 + 1);
     c.font = `400 14px ${this.sans}`;
-    c.fillStyle = "rgba(242,246,240,0.6)";
+    c.fillStyle = "rgba(248,241,234,0.6)";
     c.fillText("sandboxd", 62, MENU_H / 2 + 1);
     c.font = `400 13px ${this.font}`;
     const status = `${this.count} microVM${this.count === 1 ? "" : "s"} running · $0`;
     c.textAlign = "right";
-    c.fillStyle = "rgba(242,246,240,0.75)";
+    c.fillStyle = "rgba(248,241,234,0.75)";
     c.fillText(status, SCREEN_W - 18, MENU_H / 2 + 1);
     c.textAlign = "left";
 
     if (this.hint) {
       c.font = `400 13px ${this.font}`;
       c.textAlign = "center";
-      c.fillStyle = "#3ee38d";
-      c.fillText("click the iMac to start another microVM", SCREEN_W / 2, MENU_H / 2 + 1);
+      c.fillStyle = "#e27a38";
+      c.fillText("click the iMac to start another microVM · drag to turn it", SCREEN_W / 2, MENU_H / 2 + 1);
       c.textAlign = "left";
     }
 
     for (const w of this.wins) this.drawWin(w);
+  }
+
+  private wall: HTMLCanvasElement | null = null;
+
+  // Warm orange wallpaper with soft diagonal ribbons, drawn once.
+  private wallpaper() {
+    if (this.wall) return this.wall;
+    const cv = document.createElement("canvas");
+    cv.width = SCREEN_W;
+    cv.height = SCREEN_H;
+    const c = cv.getContext("2d")!;
+    const base = c.createLinearGradient(0, 0, SCREEN_W, SCREEN_H);
+    base.addColorStop(0, "#f6a070");
+    base.addColorStop(0.5, "#ee7a45");
+    base.addColorStop(1, "#f39a5f");
+    c.fillStyle = base;
+    c.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    c.save();
+    c.translate(SCREEN_W / 2, SCREEN_H / 2);
+    c.rotate(-0.45);
+    for (let i = -6; i <= 6; i++) {
+      const x = i * 150;
+      const band = c.createLinearGradient(x - 70, 0, x + 70, 0);
+      band.addColorStop(0, "rgba(255,214,186,0)");
+      band.addColorStop(0.45, i % 2 ? "rgba(255,226,204,0.55)" : "rgba(232,84,40,0.45)");
+      band.addColorStop(1, "rgba(255,214,186,0)");
+      c.fillStyle = band;
+      roundRect(c, x - 70, -SCREEN_H, 140, SCREEN_H * 2, 70);
+      c.fill();
+    }
+    c.restore();
+    this.wall = cv;
+    return cv;
   }
 
   private drawWin(w: Win) {
@@ -232,9 +256,9 @@ export class Screen {
     c.globalAlpha = fade;
     c.translate(x, y);
     roundRect(c, 0, 0, rw, rh, 12 * Math.min(1, s * 1.4));
-    c.fillStyle = "#0b0e0c";
+    c.fillStyle = "#120c09";
     c.fill();
-    c.strokeStyle = "rgba(226,240,230,0.2)";
+    c.strokeStyle = "rgba(255,200,160,0.2)";
     c.lineWidth = 1.5;
     c.stroke();
     c.clip();
@@ -252,7 +276,7 @@ export class Screen {
     c.font = `500 ${Math.max(9, 15 * s)}px ${this.font}`;
     c.textBaseline = "middle";
     c.textAlign = "center";
-    c.fillStyle = "rgba(242,246,240,0.62)";
+    c.fillStyle = "rgba(248,241,234,0.62)";
     c.fillText(`${w.title} · ubuntu 24.04`, rw / 2, bar / 2 + 1);
     c.textAlign = "left";
 
@@ -270,13 +294,13 @@ export class Screen {
       let text = l.t;
       if (newest && l.k === "cmd") text = text.slice(0, Math.max(0, Math.floor((this.now - w.typeAt) / TYPE_MS)));
       const prefix = l.k === "cmd" ? "$ " : l.k === "ok" ? "✓ " : l.k === "err" ? "✗ " : "";
-      c.fillStyle = l.k === "cmd" ? "rgba(242,246,240,0.5)" : l.k === "ok" ? "#3ee38d" : "#ff6b6b";
+      c.fillStyle = l.k === "cmd" ? "rgba(248,241,234,0.5)" : l.k === "ok" ? "#e27a38" : "#ff6b6b";
       if (prefix) c.fillText(prefix, lx, ly);
       const px = prefix ? c.measureText(prefix).width : 0;
-      c.fillStyle = l.k === "out" ? "rgba(242,246,240,0.64)" : l.k === "err" ? "#ff6b6b" : "#f2f6f0";
+      c.fillStyle = l.k === "out" ? "rgba(248,241,234,0.64)" : l.k === "err" ? "#ff6b6b" : "#f8f1ea";
       c.fillText(text, lx + px, ly);
       if (newest && l.k === "cmd" && Math.floor(this.now / 530) % 2 === 0) {
-        c.fillStyle = "#3ee38d";
+        c.fillStyle = "#e27a38";
         c.fillRect(lx + px + c.measureText(text).width + 2, ly - fs * 0.55, fs * 0.5, fs * 1.1);
       }
     });
@@ -284,10 +308,10 @@ export class Screen {
     c.fillStyle = "rgba(255,255,255,0.03)";
     c.fillRect(0, rh - foot, rw, foot);
     c.font = `400 ${Math.max(8, 14 * s)}px ${this.font}`;
-    c.fillStyle = "#3ee38d";
+    c.fillStyle = "#e27a38";
     c.fillText("● running", 16 * s + 4, rh - foot / 2);
     c.textAlign = "right";
-    c.fillStyle = "rgba(242,246,240,0.45)";
+    c.fillStyle = "rgba(248,241,234,0.45)";
     c.fillText("2 vCPU · 2 GB", rw - 16 * s - 4, rh - foot / 2);
     c.textAlign = "left";
     c.restore();
