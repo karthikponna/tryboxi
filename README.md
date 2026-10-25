@@ -22,7 +22,7 @@
   Think "E2B, but on your computer": code never leaves the machine and it costs $0.
 </p>
 
-## Intro
+## Why tryboxi
 
 - **A real Linux machine per agent.** Each sandbox is an Ubuntu 24.04 microVM with its own kernel.
 - **Your repo goes in one way.** Changes come back only through `diff` / `apply` / `pull`, with a backup and `undo`.
@@ -412,3 +412,8 @@ The website lives in [`web/`](web): `cd web && bun install && bun run dev`.
 
 This repository's source code is available under the [MIT License](LICENSE). You are free to clone, use,
 modify, and distribute it, including commercially, as long as the copyright notice is kept.
+
+
+<p align="center">
+  Thank you for reading till the end, please give a star ⭐
+</p>
